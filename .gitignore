@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Secrets and local config (copy .env.example to .env)
+.env
+.env.local
+
+# Local file storage (X-rays, photos, signatures) in development
+.storage/
+
+# Local database
+.pgdata/
+.pgdata.log
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
