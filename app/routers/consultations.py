@@ -192,6 +192,7 @@ def create_consultation(patient_id: uuid.UUID, payload: ConsultationIn, request:
     _check_date(clinic, payload.consult_date)
     _check_services(db, payload.recommendations)
     day = payload.consult_date or clinic_today(clinic)
+    fee = get_settings(db, clinic).default_consultation_fee_paise
 
     consultation = Consultation(
         clinic_id=clinic.id,
@@ -202,6 +203,7 @@ def create_consultation(patient_id: uuid.UUID, payload: ConsultationIn, request:
         oral_examination=payload.oral_examination,
         xray_taken=payload.xray_taken,
         recommendation_note=payload.recommendation_note,
+        fee_paise=fee,
         created_by=current.staff.id,
     )
     db.add(consultation)
@@ -213,7 +215,6 @@ def create_consultation(patient_id: uuid.UUID, payload: ConsultationIn, request:
         doctor_id=doctor.id, consultation_id=consultation.id,
     )
 
-    fee = get_settings(db, clinic).default_consultation_fee_paise
     if fee > 0:
         db.add(
             LedgerEntry(

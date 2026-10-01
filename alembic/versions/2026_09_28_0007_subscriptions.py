@@ -11,6 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.config import settings
+
 revision: str = "0007"
 down_revision: str | Sequence[str] | None = "0006"
 branch_labels: str | Sequence[str] | None = None
@@ -53,8 +55,8 @@ def upgrade() -> None:
         "WITH CHECK (clinic_id = current_setting('app.clinic_id')::uuid)"
     )
     # A clinic can read its own subscription. Only payments and the platform change it.
-    op.execute("REVOKE ALL ON subscriptions FROM denti_app")
-    op.execute("GRANT SELECT ON subscriptions TO denti_app")
+    op.execute(f"REVOKE ALL ON subscriptions FROM {settings.db_app_role}")
+    op.execute(f"GRANT SELECT ON subscriptions TO {settings.db_app_role}")
 
 
 def downgrade() -> None:

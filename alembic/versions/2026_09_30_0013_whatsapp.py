@@ -12,6 +12,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.config import settings
+
 revision: str = "0013"
 down_revision: str | Sequence[str] | None = "0012"
 branch_labels: str | Sequence[str] | None = None
@@ -77,8 +79,8 @@ def _protect(table: str, grants: str) -> None:
         "USING (clinic_id = current_setting('app.clinic_id')::uuid) "
         "WITH CHECK (clinic_id = current_setting('app.clinic_id')::uuid)"
     )
-    op.execute(f"REVOKE ALL ON {table} FROM denti_app")
-    op.execute(f"GRANT {grants} ON {table} TO denti_app")
+    op.execute(f"REVOKE ALL ON {table} FROM {settings.db_app_role}")
+    op.execute(f"GRANT {grants} ON {table} TO {settings.db_app_role}")
 
 
 def upgrade() -> None:

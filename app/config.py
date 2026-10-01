@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     database_url: str
     # Migrations and the seed script run as denti_owner, which owns the tables.
     migration_database_url: str
+    # The API's database user, which the migrations grant exactly what it may do. Hosts that
+    # prefix user names (cPanel makes it ogkkalmy_dapp) set this to the full name.
+    db_app_role: str = "denti_app"
 
     jwt_secret: str
     # Password hashing cost. 12 in real use; tests lower it so they run quickly.
@@ -43,9 +46,15 @@ class Settings(BaseSettings):
     # "razorpay". Left empty, it is "test" everywhere except production.
     payment_backend: str | None = None
 
-    # "console" prints emails in the backend window (local development and tests).
+    # "console" prints emails in the backend window (local development and tests). "smtp"
+    # sends through a mail account, for example one made in the hosting's cPanel.
     email_backend: str = "console"
     email_from: str = "Denti <no-reply@denti.in>"
+    smtp_host: str | None = None
+    # 465 is encrypted from the start; 587 switches to encryption (STARTTLS).
+    smtp_port: int = 465
+    smtp_user: str | None = None
+    smtp_password: str | None = None
 
     @property
     def cors_origin_list(self) -> list[str]:

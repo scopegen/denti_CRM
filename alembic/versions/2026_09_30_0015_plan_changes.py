@@ -14,6 +14,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.config import settings
+
 revision: str = "0015"
 down_revision: str | Sequence[str] | None = "0014"
 branch_labels: str | Sequence[str] | None = None
@@ -108,12 +110,12 @@ def upgrade() -> None:
         "USING (clinic_id = current_setting('app.clinic_id')::uuid) "
         "WITH CHECK (clinic_id = current_setting('app.clinic_id')::uuid)"
     )
-    op.execute("REVOKE ALL ON plan_changes FROM denti_app")
-    op.execute("GRANT SELECT, INSERT, UPDATE ON plan_changes TO denti_app")
+    op.execute(f"REVOKE ALL ON plan_changes FROM {settings.db_app_role}")
+    op.execute(f"GRANT SELECT, INSERT, UPDATE ON plan_changes TO {settings.db_app_role}")
 
     op.execute(APPLY_FUNCTION)
     op.execute("REVOKE ALL ON FUNCTION apply_plan_change(uuid) FROM PUBLIC")
-    op.execute("GRANT EXECUTE ON FUNCTION apply_plan_change(uuid) TO denti_app")
+    op.execute(f"GRANT EXECUTE ON FUNCTION apply_plan_change(uuid) TO {settings.db_app_role}")
 
 
 def downgrade() -> None:

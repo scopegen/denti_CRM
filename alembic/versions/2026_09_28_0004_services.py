@@ -11,6 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.config import settings
+
 revision: str = "0004"
 down_revision: str | Sequence[str] | None = "0003"
 branch_labels: str | Sequence[str] | None = None
@@ -64,8 +66,8 @@ def upgrade() -> None:
         "WITH CHECK (clinic_id = current_setting('app.clinic_id')::uuid)"
     )
     # Services are retired (active = false), never deleted: old treatments point at them.
-    op.execute("GRANT SELECT, INSERT, UPDATE ON services TO denti_app")
-    op.execute("REVOKE DELETE, TRUNCATE ON services FROM denti_app")
+    op.execute(f"GRANT SELECT, INSERT, UPDATE ON services TO {settings.db_app_role}")
+    op.execute(f"REVOKE DELETE, TRUNCATE ON services FROM {settings.db_app_role}")
 
     connection = op.get_bind()
     for (clinic_id,) in connection.execute(sa.text("SELECT id FROM clinics")).all():

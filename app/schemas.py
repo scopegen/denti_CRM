@@ -1402,3 +1402,72 @@ class SharedDocumentOut(BaseModel):
     title: str
     date_text: str
     expires_at: datetime
+
+
+# Clinics signing up by themselves
+
+class SignupPlansOut(BaseModel):
+    plans: list[PlanOption]
+    features: list[PlanFeature]
+    starter_pack_months: int
+    gst_percent: int
+
+
+class AddressCheckOut(BaseModel):
+    slug: str
+    available: bool
+    # Why not, in words, when it is not available.
+    reason: str | None
+
+
+class SignupIn(BaseModel):
+    plan: Literal["basic", "standard", "pro"]
+    clinic_name: str = Field(min_length=2, max_length=120)
+    slug: str = Field(min_length=2, max_length=40)
+    patient_id_prefix: str | None = Field(default=None, max_length=12)
+    owner_name: str = Field(min_length=2, max_length=120)
+    email: Email
+    phone: str | None = Field(default=None, max_length=20)
+    password: str = Field(min_length=8, max_length=72)
+    owner_treats_patients: bool = True
+
+    _check_password = field_validator("password")(_password_fits_bcrypt)
+
+    @field_validator("clinic_name", "owner_name")
+    @classmethod
+    def _trimmed(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("slug")
+    @classmethod
+    def _slug(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("patient_id_prefix")
+    @classmethod
+    def _prefix(cls, value: str | None) -> str | None:
+        value = (value or "").strip().upper()
+        return value or None
+
+
+class SignupStarted(BaseModel):
+    signup_id: uuid.UUID
+    sent_to: str
+    resend_after_seconds: int
+    # What the Starter pack costs, and whether online payment is connected ("test" means no
+    # money is taken; "none" means the clinic pays the Denti team directly for now).
+    amount_paise: int
+    gst_paise: int
+    total_paise: int
+    payment_method: str
+
+
+class SignupVerifyIn(BaseModel):
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class SignupDone(BaseModel):
+    session: SessionOut
+    clinic_slug: str
+    # False while online payment is not connected on a live server: the plan shows "Payment due".
+    paid: bool

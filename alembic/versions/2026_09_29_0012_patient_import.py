@@ -12,6 +12,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.config import settings
+
 revision: str = "0012"
 down_revision: str | Sequence[str] | None = "0011"
 branch_labels: str | Sequence[str] | None = None
@@ -88,8 +90,8 @@ def upgrade() -> None:
         "USING (clinic_id = current_setting('app.clinic_id')::uuid) "
         "WITH CHECK (clinic_id = current_setting('app.clinic_id')::uuid)"
     )
-    op.execute("REVOKE ALL ON import_batches FROM denti_app")
-    op.execute("GRANT SELECT, INSERT ON import_batches TO denti_app")
+    op.execute(f"REVOKE ALL ON import_batches FROM {settings.db_app_role}")
+    op.execute(f"GRANT SELECT, INSERT ON import_batches TO {settings.db_app_role}")
 
     for table in ("patients", "import_batches"):
         op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
@@ -109,7 +111,7 @@ def upgrade() -> None:
     # this function, which checks the 30 minutes and that nothing was recorded.
     op.execute(UNDO_FUNCTION)
     op.execute("REVOKE ALL ON FUNCTION undo_patient_import(uuid, uuid) FROM PUBLIC")
-    op.execute("GRANT EXECUTE ON FUNCTION undo_patient_import(uuid, uuid) TO denti_app")
+    op.execute(f"GRANT EXECUTE ON FUNCTION undo_patient_import(uuid, uuid) TO {settings.db_app_role}")
 
 
 def downgrade() -> None:

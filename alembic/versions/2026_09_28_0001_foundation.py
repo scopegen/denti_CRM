@@ -11,6 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.config import settings
+
 revision: str = "0001"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
@@ -171,14 +173,14 @@ def upgrade() -> None:
         )
 
     # What the API role (denti_app) may do. Stated here so every environment gets the same rules.
-    op.execute("GRANT SELECT ON clinics TO denti_app")
-    op.execute("REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON clinics FROM denti_app")
+    op.execute(f"GRANT SELECT ON clinics TO {settings.db_app_role}")
+    op.execute(f"REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON clinics FROM {settings.db_app_role}")
     for table in ["staff", "auth_sessions", "login_codes", "trusted_devices"]:
-        op.execute(f"GRANT SELECT, INSERT, UPDATE ON {table} TO denti_app")
-        op.execute(f"REVOKE DELETE, TRUNCATE ON {table} FROM denti_app")
+        op.execute(f"GRANT SELECT, INSERT, UPDATE ON {table} TO {settings.db_app_role}")
+        op.execute(f"REVOKE DELETE, TRUNCATE ON {table} FROM {settings.db_app_role}")
     # The audit log can be added to and read, never changed or removed.
-    op.execute("GRANT SELECT, INSERT ON audit_log TO denti_app")
-    op.execute("REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM denti_app")
+    op.execute(f"GRANT SELECT, INSERT ON audit_log TO {settings.db_app_role}")
+    op.execute(f"REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM {settings.db_app_role}")
 
 
 def downgrade() -> None:

@@ -4,15 +4,13 @@
 
 Runs as denti_owner (the migration role). Safe to run again: an existing demo clinic is left alone.
 """
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.clinic_time import add_months
+from app.clinic_setup import set_up_clinic
 from app.config import settings
-from app.defaults import DEFAULT_PICKLISTS, STARTER_SERVICES, TOOTH_REMOVING_SERVICES
-from app.models import Clinic, Picklist, Service, Staff, Subscription
-from app.plans import STARTER_PACK_MONTHS
-from app.security import hash_password, now
+from app.models import Clinic
+from app.security import hash_password
 
 DEMO_PASSWORD = "DentiDemo123"
 
@@ -36,34 +34,7 @@ def main() -> None:
             print(f"The demo clinic already exists ({clinic.name}). Nothing changed.")
             return
 
-        clinic = Clinic(**DEMO_CLINIC)
-        db.add(clinic)
-        db.flush()
-        # Staff rows are protected by row level security, so the clinic is set first.
-        connection.execute(text("select set_config('app.clinic_id', :cid, true)"), {"cid": str(clinic.id)})
-        password_hash = hash_password(DEMO_PASSWORD)
-        for person in DEMO_STAFF:
-            db.add(Staff(clinic_id=clinic.id, password_hash=password_hash, **person))
-        for list_name, values in DEFAULT_PICKLISTS.items():
-            for order, value in enumerate(values):
-                db.add(Picklist(clinic_id=clinic.id, list=list_name, value=value, sort_order=order))
-        # Like a new clinic: on the Starter pack, its first 3 months paid in one go.
-        started = now()
-        db.add(
-            Subscription(
-                clinic_id=clinic.id, billing_cycle="starter", status="active", starter_pack_used=True,
-                current_period_start=started, current_period_end=add_months(started, STARTER_PACK_MONTHS),
-            )
-        )
-        for name, category, kind, rupees, recall in STARTER_SERVICES:
-            db.add(
-                Service(
-                    clinic_id=clinic.id, name=name, category=category, kind=kind,
-                    listed_price_paise=rupees * 100, recall_after_months=recall,
-                    removes_tooth=name in TOOTH_REMOVING_SERVICES,
-                )
-            )
-        db.flush()
+        set_up_clinic(connection, db, Clinic(**DEMO_CLINIC), DEMO_STAFF, hash_password(DEMO_PASSWORD))
 
     print(f"Created {DEMO_CLINIC['name']}: http://localhost:5180/{DEMO_CLINIC['slug']}  Password for every login: {DEMO_PASSWORD}")
     for person in DEMO_STAFF:

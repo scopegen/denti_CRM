@@ -52,7 +52,7 @@ def clean_tables():
     with owner_engine.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE audit_log, plan_changes, message_log, share_links, message_templates, invoice_lines, invoices, estimate_items, estimate_options, estimates, ledger_entries, tooth_findings, mouth_checks, prescription_versions, prescriptions, "
+                "TRUNCATE audit_log, plan_changes, pending_signups, message_log, share_links, message_templates, invoice_lines, invoices, estimate_items, estimate_options, estimates, ledger_entries, tooth_findings, mouth_checks, prescription_versions, prescriptions, "
                 "treatment_handoffs, visits, "
                 "treatments, consultation_recommendations, consultations, clinic_settings, arrivals, follow_ups, services, "
                 "patients, import_batches, picklists, counters, trusted_devices, login_codes, auth_sessions, "

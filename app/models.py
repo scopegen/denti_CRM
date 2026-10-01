@@ -361,6 +361,13 @@ class Consultation(Base):
     oral_examination: Mapped[str] = mapped_column(Text, nullable=False)
     xray_taken: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     recommendation_note: Mapped[str | None] = mapped_column(Text)
+    # The fee charged, and any increase or discount the owner or receptionist gave on the bill.
+    # Percent is in basis points: 1000 is 10%.
+    fee_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    fee_adjustment_type: Mapped[str | None] = mapped_column(String(7))
+    fee_adjustment_value: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    fee_discount_type: Mapped[str | None] = mapped_column(String(7))
+    fee_discount_value: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     created_at: Mapped[datetime] = created_at()
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -931,3 +938,38 @@ class PlanChange(Base):
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
+class PendingSignup(Base):
+    """A clinic signing up, waiting for its owner to confirm their email. Shared by all of
+    Denti (no row level security) until create_signed_up_clinic turns it into a clinic."""
+
+    __tablename__ = "pending_signups"
+    __table_args__ = (
+        CheckConstraint("plan IN ('basic', 'standard', 'pro')", name="pending_signups_plan"),
+        CheckConstraint("attempts >= 0", name="pending_signups_attempts"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    plan: Mapped[str] = mapped_column(String(20), nullable=False)
+    clinic_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    slug: Mapped[str] = mapped_column(String(40), nullable=False)
+    patient_id_prefix: Mapped[str | None] = mapped_column(String(12))
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata")
+    owner_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(20))
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_treats_patients: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    clinic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("clinics.id"))
+    payment_method: Mapped[str | None] = mapped_column(String(20))
+    payment_ref: Mapped[str | None] = mapped_column(String(100))
+    amount_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    gst_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    ip: Mapped[str | None] = mapped_column(String(64))
+    device: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = created_at()

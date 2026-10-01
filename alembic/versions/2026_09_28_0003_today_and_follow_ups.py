@@ -11,6 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.config import settings
+
 revision: str = "0003"
 down_revision: str | Sequence[str] | None = "0002"
 branch_labels: str | Sequence[str] | None = None
@@ -84,8 +86,8 @@ def upgrade() -> None:
             "WITH CHECK (clinic_id = current_setting('app.clinic_id')::uuid)"
         )
         # Nothing is deleted: a mistaken arrival is cancelled, a follow up is marked cancelled.
-        op.execute(f"GRANT SELECT, INSERT, UPDATE ON {table} TO denti_app")
-        op.execute(f"REVOKE DELETE, TRUNCATE ON {table} FROM denti_app")
+        op.execute(f"GRANT SELECT, INSERT, UPDATE ON {table} TO {settings.db_app_role}")
+        op.execute(f"REVOKE DELETE, TRUNCATE ON {table} FROM {settings.db_app_role}")
 
 
 def downgrade() -> None:

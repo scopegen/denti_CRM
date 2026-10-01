@@ -11,6 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.config import settings
+
 revision: str = "0002"
 down_revision: str | Sequence[str] | None = "0001"
 branch_labels: str | Sequence[str] | None = None
@@ -34,7 +36,12 @@ DEFAULT_MEDICAL_CONDITIONS = [
 
 
 def upgrade() -> None:
-    op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+    # Fast search by part of a name needs the pg_trgm extension. Some hosts (Bluehost shared
+    # hosting) do not have it; search still works without it, only more slowly for very large
+    # clinics.
+    trigram = op.get_bind().execute(sa.text("SELECT 1 FROM pg_available_extensions WHERE name = 'pg_trgm'")).first()
+    if trigram:
+        op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
     op.create_table(
         "counters",
@@ -94,7 +101,10 @@ def upgrade() -> None:
     )
     op.create_index("patients_clinic_phone", "patients", ["clinic_id", "phone"])
     op.create_index("patients_clinic_created", "patients", ["clinic_id", "created_at"])
-    op.execute("CREATE INDEX patients_name_trgm ON patients USING gin (lower(name) gin_trgm_ops)")
+    if trigram:
+        op.execute("CREATE INDEX patients_name_trgm ON patients USING gin (lower(name) gin_trgm_ops)")
+    else:
+        op.execute("CREATE INDEX patients_name_lower ON patients (clinic_id, lower(name))")
 
     for table in NEW_CLINIC_TABLES:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
@@ -105,8 +115,8 @@ def upgrade() -> None:
             "WITH CHECK (clinic_id = current_setting('app.clinic_id')::uuid)"
         )
         # Patients are never deleted (they can only be merged), and nothing here is.
-        op.execute(f"GRANT SELECT, INSERT, UPDATE ON {table} TO denti_app")
-        op.execute(f"REVOKE DELETE, TRUNCATE ON {table} FROM denti_app")
+        op.execute(f"GRANT SELECT, INSERT, UPDATE ON {table} TO {settings.db_app_role}")
+        op.execute(f"REVOKE DELETE, TRUNCATE ON {table} FROM {settings.db_app_role}")
 
     # Give every existing clinic the default medical conditions checklist.
     connection = op.get_bind()

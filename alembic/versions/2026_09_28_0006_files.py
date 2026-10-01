@@ -11,6 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.config import settings
+
 revision: str = "0006"
 down_revision: str | Sequence[str] | None = "0005"
 branch_labels: str | Sequence[str] | None = None
@@ -62,8 +64,8 @@ def upgrade() -> None:
         "WITH CHECK (clinic_id = current_setting('app.clinic_id')::uuid)"
     )
     # Deleting only marks a file as in the bin. Removing it for good is a platform job.
-    op.execute("REVOKE ALL ON files FROM denti_app")
-    op.execute("GRANT SELECT, INSERT, UPDATE ON files TO denti_app")
+    op.execute(f"REVOKE ALL ON files FROM {settings.db_app_role}")
+    op.execute(f"GRANT SELECT, INSERT, UPDATE ON files TO {settings.db_app_role}")
 
     op.add_column("staff", sa.Column("signature_file_id", postgresql.UUID(as_uuid=True)))
     # Checking existing staff rows against files reads both tables, and with FORCE the

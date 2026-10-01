@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
+from app.email import EmailNotSent
 from app.routers import (
     audit_log,
     auth,
@@ -21,6 +22,7 @@ from app.routers import (
     plan,
     services,
     shared_documents,
+    signup,
     staff,
     today,
     tooth_chart,
@@ -58,6 +60,14 @@ app.include_router(estimates.router)
 app.include_router(imports.router)
 app.include_router(whatsapp.router)
 app.include_router(shared_documents.router)
+app.include_router(signup.router)
+
+
+@app.exception_handler(EmailNotSent)
+def email_not_sent(request: Request, error: EmailNotSent):
+    return JSONResponse(
+        status_code=503, content={"detail": "We could not send the email just now. Please try again in a minute."}
+    )
 
 
 @app.get("/health")
