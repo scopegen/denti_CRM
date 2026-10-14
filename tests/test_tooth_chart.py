@@ -14,7 +14,7 @@ def _setup(slug="smile", plan="standard"):
 
 
 def _patient(client, token):
-    return client.post("/patients", json={"name": "Rahul Sharma", "phone": "9810012345", "birth_year": 1990}, headers=auth(token)).json()
+    return client.post("/patients", json={"name": "Rahul Sharma", "phone": "1010012345", "birth_year": 1990}, headers=auth(token)).json()
 
 
 def _service(client, owner_token, name, removes_tooth=False, price=100000):

@@ -26,7 +26,7 @@ def _sql(clinic_id, statement, **params):
 
 
 def _patient(client, token):
-    return client.post("/patients", json={"name": "Rahul Sharma", "phone": "9810012345", "birth_year": 1990}, headers=auth(token)).json()
+    return client.post("/patients", json={"name": "Rahul Sharma", "phone": "1010012345", "birth_year": 1990}, headers=auth(token)).json()
 
 
 def test_moving_up_charges_the_difference_for_the_rest_of_the_period_and_applies_now(client):

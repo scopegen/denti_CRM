@@ -6,14 +6,16 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.audit import record
-from app.billing import effective_at, format_inr
+from app.billing import consultation_final_fee, effective_at, final_price, format_inr, rebill_consultation, treatment_final_price
 from app.clinic_time import clinic_today
 from app.defaults import DEFAULT_PICKLISTS
 from app.deps import Current, require_admin
-from app.models import Clinic, LedgerEntry, Patient, Picklist, Service, Staff, Treatment
+from app.models import Clinic, Consultation, LedgerEntry, Patient, Picklist, Service, Staff, Treatment
 from app.patients_util import normalise_phone, parse_patient_number, patient_code
+from app.routers.invoices import issued_invoice_numbers, refuse_if_invoiced
 from app.schemas import (
     BillOut,
+    ChargeOut,
     DueRow,
     DuesOut,
     LedgerOut,
@@ -23,7 +25,9 @@ from app.schemas import (
     PersonBrief,
     RefundIn,
     ReversalIn,
+    TreatmentPriceIn,
 )
+from app.security import now
 
 # The patient's bill and the clinic's dues: for the owner and receptionist only. The bill is
 # ledger entries that are only ever added (app/billing.py). A wrong payment is reversed with
@@ -73,6 +77,8 @@ def _describe(entry: LedgerEntry, treatments: dict[uuid.UUID, tuple[str, list[in
     if entry.kind == "treatment_charge":
         return what or "Treatment"
     if entry.kind == "price_change":
+        if entry.consultation_id:
+            return f"Consultation fee: {entry.note}" if entry.note else "Consultation fee: changed"
         return f"{what or 'Treatment'}: {entry.note}" if entry.note else f"{what or 'Treatment'}: price changed"
     if entry.kind == "opening_balance":
         return "Opening balance" if entry.amount_paise > 0 else "Opening credit"
@@ -83,7 +89,7 @@ def _describe(entry: LedgerEntry, treatments: dict[uuid.UUID, tuple[str, list[in
     return f"Refund, {entry.payment_mode}"
 
 
-def bill_for(db: Session, patient_id: uuid.UUID) -> BillOut:
+def bill_for(db: Session, clinic: Clinic, patient_id: uuid.UUID) -> BillOut:
     entries = list(
         db.scalars(
             select(LedgerEntry)
@@ -120,9 +126,52 @@ def bill_for(db: Session, patient_id: uuid.UUID) -> BillOut:
         charged_paise=charged,
         paid_paise=charged - balance,
         entries=lines,
+        charges=_charges(db, clinic, patient_id, entries, treatments),
         has_opening_balance=any(e.kind == "opening_balance" for e in entries),
         payment_modes=_payment_modes(db),
     )
+
+
+def _charges(
+    db: Session, clinic: Clinic, patient_id: uuid.UUID, entries: list[LedgerEntry], treatments: dict[uuid.UUID, tuple[str, list[int]]]
+) -> list[ChargeOut]:
+    """Each consultation fee and started treatment on the bill, with its price, increase,
+    discount and what the bill holds for it. Cancelled treatments are off the bill."""
+    billed: dict[uuid.UUID, int] = {}
+    for e in entries:
+        if e.kind in ("consultation_fee", "treatment_charge", "price_change"):
+            key = e.consultation_id or e.treatment_id
+            if key:
+                billed[key] = billed.get(key, 0) + e.amount_paise
+    invoiced = issued_invoice_numbers(db, clinic, patient_id)
+    charges: list[ChargeOut] = []
+
+    consultation_ids = {e.consultation_id for e in entries if e.consultation_id}
+    if consultation_ids:
+        rows = db.execute(
+            select(Consultation, Staff.name).join(Staff, Staff.id == Consultation.doctor_id).where(Consultation.id.in_(consultation_ids))
+        ).all()
+        for c, doctor in rows:
+            charges.append(
+                ChargeOut(
+                    kind="consultation", id=c.id, description=f"Consultation fee, {doctor}", on=c.consult_date,
+                    price_paise=c.fee_paise, adjustment_type=c.fee_adjustment_type, adjustment_value=c.fee_adjustment_value,
+                    discount_type=c.fee_discount_type, discount_value=c.fee_discount_value, final_paise=consultation_final_fee(c),
+                    billed_paise=billed.get(c.id, 0), invoice_number=invoiced.get(c.id),
+                )
+            )
+    if treatments:
+        for t in db.scalars(select(Treatment).where(Treatment.id.in_(treatments.keys()), Treatment.status.in_(("ongoing", "finished")))):
+            name, teeth = treatments[t.id]
+            charges.append(
+                ChargeOut(
+                    kind="treatment", id=t.id, description=f"{name}, {_teeth_text(teeth)}" if teeth else name, on=t.started_on,
+                    price_paise=t.price_paise, adjustment_type=t.adjustment_type, adjustment_value=t.adjustment_value,
+                    discount_type=t.discount_type, discount_value=t.discount_value, final_paise=treatment_final_price(t),
+                    billed_paise=billed.get(t.id, 0), invoice_number=invoiced.get(t.id),
+                )
+            )
+    return sorted(charges, key=lambda c: (c.on or date.min, c.kind != "consultation"))
 
 
 def _outstanding(db: Session, patient_id: uuid.UUID) -> int:
@@ -154,7 +203,41 @@ def _add(db: Session, current: Current, request: Request, patient: Patient, kind
 @router.get("/patients/{patient_id}/bill", response_model=BillOut)
 def get_bill(patient_id: uuid.UUID, current: Current = Depends(require_admin)):
     _patient(current.db, patient_id)
-    return bill_for(current.db, patient_id)
+    return bill_for(current.db, current.clinic, patient_id)
+
+
+@router.put("/consultations/{consultation_id}/fee", response_model=BillOut)
+def set_consultation_fee(consultation_id: uuid.UUID, payload: TreatmentPriceIn, request: Request, current: Current = Depends(require_admin)):
+    """A consultation's fee, increase and discount, changed from the bill (a free review visit, a
+    discount). The bill gets only the difference; what was billed before stays as it was."""
+    db, clinic = current.db, current.clinic
+    c = db.get(Consultation, consultation_id)
+    if c is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="We could not find this consultation.")
+    refuse_if_invoiced(db, clinic, c.patient_id, c.id)
+    if payload.discount_type == "amount":
+        increased = final_price(payload.price_paise, payload.adjustment_type, payload.adjustment_value, None, 0)
+        if payload.discount_value > increased:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="The discount is more than the fee.")
+    wanted = {
+        "fee_paise": payload.price_paise, "fee_adjustment_type": payload.adjustment_type,
+        "fee_adjustment_value": payload.adjustment_value, "fee_discount_type": payload.discount_type,
+        "fee_discount_value": payload.discount_value,
+    }
+    changes = {field: [getattr(c, field), value] for field, value in wanted.items() if getattr(c, field) != value}
+    if changes:
+        before = consultation_final_fee(c)
+        for field, value in wanted.items():
+            setattr(c, field, value)
+        c.updated_at = now()
+        changes["final_fee_paise"] = [before, consultation_final_fee(c)]
+        rebill_consultation(db, clinic, c, current.staff.id)
+        record(
+            db, clinic_id=clinic.id, action="update", actor_id=current.staff.id, entity_type="consultation",
+            entity_id=c.id, patient_id=c.patient_id, changes=changes, request=request,
+        )
+        db.commit()
+    return bill_for(db, clinic, c.patient_id)
 
 
 @router.post("/patients/{patient_id}/payments", response_model=BillOut, status_code=status.HTTP_201_CREATED)
@@ -165,7 +248,7 @@ def take_payment(patient_id: uuid.UUID, payload: PaymentIn, request: Request, cu
     day = _day(clinic, payload.paid_on)
     _add(db, current, request, patient, "payment", -payload.amount_paise, effective_at(clinic, day), payment_mode=mode, note=payload.note)
     db.commit()
-    return bill_for(db, patient.id)
+    return bill_for(db, clinic, patient.id)
 
 
 @router.post("/ledger/{entry_id}/reverse", response_model=BillOut)
@@ -184,7 +267,7 @@ def reverse_payment(entry_id: uuid.UUID, payload: ReversalIn, request: Request, 
         payment_mode=payment.payment_mode, note=payload.reason, reverses_entry_id=payment.id,
     )
     db.commit()
-    return bill_for(db, patient.id)
+    return bill_for(db, clinic, patient.id)
 
 
 @router.post("/patients/{patient_id}/refunds", response_model=BillOut, status_code=status.HTTP_201_CREATED)
@@ -199,7 +282,7 @@ def give_refund(patient_id: uuid.UUID, payload: RefundIn, request: Request, curr
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     _add(db, current, request, patient, "refund", payload.amount_paise, effective_at(clinic, clinic_today(clinic)), payment_mode=mode, note=payload.note)
     db.commit()
-    return bill_for(db, patient.id)
+    return bill_for(db, clinic, patient.id)
 
 
 @router.post("/patients/{patient_id}/opening-balance", response_model=BillOut, status_code=status.HTTP_201_CREATED)
@@ -212,7 +295,7 @@ def opening_balance(patient_id: uuid.UUID, payload: OpeningBalanceIn, request: R
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This patient already has an opening balance.")
     _add(db, current, request, patient, "opening_balance", payload.amount_paise, effective_at(clinic, clinic_today(clinic)), note=payload.note)
     db.commit()
-    return bill_for(db, patient.id)
+    return bill_for(db, clinic, patient.id)
 
 
 @router.get("/dues", response_model=DuesOut)

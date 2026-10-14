@@ -107,7 +107,7 @@ def test_an_unreadable_or_blank_signature_is_refused(client):
 
 def _consult(client, token, doctor_id):
     patient = client.post(
-        "/patients", json={"name": "Rahul Sharma", "phone": "9810012345", "birth_year": 1990, "gender": "male"}, headers=auth(token)
+        "/patients", json={"name": "Rahul Sharma", "phone": "1010012345", "birth_year": 1990, "gender": "male"}, headers=auth(token)
     ).json()
     body = {
         "doctor_id": str(doctor_id),
@@ -184,7 +184,7 @@ def test_the_prescription_layout_has_no_dashes_and_hides_empty_sections():
 
     doc = PrescriptionDoc(
         date_text="28 Sep 2026", patient_name="Rahul Sharma", patient_code="SMILE-0001", age_gender="36 years / Male",
-        phone="9810012345", doctor=Doctor(name="Dr Rohan Mehta", qualification="BDS"),
+        phone="1010012345", doctor=Doctor(name="Dr Rohan Mehta", qualification="BDS"),
         diagnosis="Pulpitis", items=[{"medicine": "Amoxicillin 500 mg", "frequency": "TDS", "duration": "5 days"}],
     )
     html = prescription_html(Letterhead(clinic_name="Smile Dental Clinic"), doc)

@@ -16,7 +16,7 @@ def _setup(plan="standard", slug="smile"):
     return clinic_id, owner, desk, doctor
 
 
-def _patient(client, token, consent=True, phone="98600 12345"):
+def _patient(client, token, consent=True, phone="10600 12345"):
     body = {"name": "Rohan Das", "phone": phone, "birth_year": 1980, "whatsapp_consent": consent}
     return client.post("/patients", json=body, headers=auth(token)).json()
 
@@ -36,9 +36,9 @@ def _link_token(message):
 
 
 def test_phone_numbers_become_whatsapp_numbers():
-    assert whatsapp_number("98600 12345") == "919860012345"
-    assert whatsapp_number("+91 98600 12345") == "919860012345"
-    assert whatsapp_number("098600 12345") == "919860012345"
+    assert whatsapp_number("10600 12345") == "911060012345"
+    assert whatsapp_number("+91 10600 12345") == "911060012345"
+    assert whatsapp_number("010600 12345") == "911060012345"
     assert whatsapp_number("+44 7700 900123") == "447700900123"
     assert whatsapp_number("12345") is None
 
@@ -57,7 +57,7 @@ def test_a_visit_reminder_opens_whatsapp_with_the_message_written(client):
     opened = _open(client, token, patient_id=patient["id"], kind="visit_reminder", follow_up_id=follow_up["id"])
     assert opened.status_code == 200, opened.text
     where, message = _text(opened)
-    assert where == "wa.me/919860012345"
+    assert where == "wa.me/911060012345"
     assert message.startswith("Hello Rohan, this is Smile Dental. A reminder of your dental visit on ")
     assert "at 11:30 AM" in message
     assert opened.json()["link_expires_at"] is None

@@ -13,7 +13,7 @@ def _setup(slug="smile", plan="standard"):
     return clinic_id, owner, desk, doctor
 
 
-def _patient(client, token, name="Rahul Sharma", phone="9810012345"):
+def _patient(client, token, name="Rahul Sharma", phone="1010012345"):
     return client.post("/patients", json={"name": name, "phone": phone, "birth_year": 1990}, headers=auth(token)).json()
 
 

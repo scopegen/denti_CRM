@@ -19,7 +19,7 @@ def _setup(slug="smile", plan="standard"):
 
 def _patient(client, token):
     return client.post(
-        "/patients", json={"name": "Rahul Sharma", "phone": "9810012345", "birth_year": 1990}, headers=auth(token)
+        "/patients", json={"name": "Rahul Sharma", "phone": "1010012345", "birth_year": 1990}, headers=auth(token)
     ).json()
 
 
@@ -145,7 +145,7 @@ def test_an_upload_cannot_be_confirmed_for_another_patient(client):
     _, doctor = _setup()
     token = sign_in(client, doctor)
     first = _patient(client, token)
-    second = client.post("/patients", json={"name": "Asha Rao", "phone": "9810099999", "birth_year": 1985}, headers=auth(token)).json()
+    second = client.post("/patients", json={"name": "Asha Rao", "phone": "1010099999", "birth_year": 1985}, headers=auth(token)).json()
     ticket = client.post(
         f"/patients/{first['id']}/files/uploads", json={"content_type": "image/jpeg", "size_bytes": len(_jpeg())}, headers=auth(token)
     ).json()

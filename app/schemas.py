@@ -1002,12 +1002,32 @@ class LedgerOut(BaseModel):
     balance_paise: int
 
 
+class ChargeOut(BaseModel):
+    """A consultation fee or started treatment on the bill, with how its price is made up. The
+    owner or receptionist changes the price, increase and discount from the bill."""
+
+    kind: Literal["consultation", "treatment"]
+    id: uuid.UUID
+    description: str
+    on: date | None
+    price_paise: int
+    adjustment_type: AdjustmentType | None
+    adjustment_value: int
+    discount_type: AdjustmentType | None
+    discount_value: int
+    final_paise: int
+    billed_paise: int
+    # The issued invoice it is on, if any: its price is locked until that invoice is cancelled.
+    invoice_number: str | None
+
+
 class BillOut(BaseModel):
     # Positive: the patient owes this. Negative: the clinic holds this much in credit.
     outstanding_paise: int
     charged_paise: int
     paid_paise: int
     entries: list[LedgerOut]
+    charges: list[ChargeOut]
     has_opening_balance: bool
     payment_modes: list[str]
 

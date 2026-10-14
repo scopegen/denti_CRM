@@ -8,12 +8,12 @@ from sqlalchemy import text
 from tests.conftest import add_picklist, auth, make_clinic, make_staff, owner_engine, sign_in
 
 CSV = """Patient ID,Patient Name,Mobile No,Sex,DOB,Age,City,Medical Conditions,Outstanding
-RANCO-0012,Asha Rao,+91 98100 00001,F,12/03/1985,,Noida,Diabetes,"1,200"
-RANCO-0015,Vikram Singh,09810000002,Male,,42,Delhi,"Diabetes, Migraine",0
-RANCO-0016,,9810000003,M,,30,Noida,,
+RANCO-0012,Asha Rao,+91 10100 00001,F,12/03/1985,,Noida,Diabetes,"1,200"
+RANCO-0015,Vikram Singh,01010000002,Male,,42,Delhi,"Diabetes, Migraine",0
+RANCO-0016,,1010000003,M,,30,Noida,,
 RANCO-0017,Meera Iyer,12345,F,,25,Noida,,
-RANCO-0018,Asha Rao,9810000001,F,,40,Noida,,
-RANCO-0019,Ravi Kumar,9810000009,M,not a date,,Noida,,abc
+RANCO-0018,Asha Rao,1010000001,F,,40,Noida,,
+RANCO-0019,Ravi Kumar,1010000009,M,not a date,,Noida,,abc
 """
 
 
@@ -59,12 +59,12 @@ def test_an_excel_file_is_read_too(client):
     book = Workbook()
     sheet = book.active
     sheet.append(["Name", "Phone", "Date of birth"])
-    sheet.append(["Asha Rao", 9810000001, None])
+    sheet.append(["Asha Rao", 1010000001, None])
     out = io.BytesIO()
     book.save(out)
     preview = _upload(client, token, out.getvalue(), name="patients.xlsx").json()
     assert preview["row_count"] == 1
-    assert preview["sample"][0][:2] == ["Asha Rao", "9810000001"]
+    assert preview["sample"][0][:2] == ["Asha Rao", "1010000001"]
 
 
 def test_wrong_files_are_refused(client):
@@ -106,9 +106,9 @@ def test_importing_creates_patients_with_their_old_ids_and_balances(client):
 
     patients = _sql(clinic_id, "SELECT patient_number, name, phone, previous_id, gender, birth_year, medical_conditions, medical_history FROM patients ORDER BY patient_number")
     assert [(p[0], p[1], p[2], p[3], p[4]) for p in patients] == [
-        (1, "Asha Rao", "9810000001", "RANCO-0012", "female"),
-        (2, "Vikram Singh", "9810000002", "RANCO-0015", "male"),
-        (3, "Asha Rao", "9810000001", "RANCO-0018", "female"),
+        (1, "Asha Rao", "1010000001", "RANCO-0012", "female"),
+        (2, "Vikram Singh", "1010000002", "RANCO-0015", "male"),
+        (3, "Asha Rao", "1010000001", "RANCO-0018", "female"),
     ]
     assert patients[1][6] == ["Diabetes"] and "Other conditions: Migraine" in patients[1][7]
     balances = _sql(clinic_id, "SELECT amount_paise, kind FROM ledger_entries")
@@ -126,7 +126,7 @@ def test_existing_patient_numbers_can_be_kept(client):
     numbers = [n for (n,) in _sql(clinic_id, "SELECT patient_number FROM patients ORDER BY 1")]
     assert numbers == [12, 15]
     # The next patient registered continues from the highest kept number.
-    new = client.post("/patients", json={"name": "New Patient", "phone": "9810000555", "birth_year": 1990}, headers=auth(token)).json()
+    new = client.post("/patients", json={"name": "New Patient", "phone": "1010000555", "birth_year": 1990}, headers=auth(token)).json()
     assert new["patient_number"] == 16
 
 
@@ -191,7 +191,7 @@ def test_an_import_cannot_be_undone_once_something_is_recorded_or_time_is_up(cli
     assert recorded.status_code == 409
     assert "already been recorded" in recorded.json()["detail"]
 
-    preview2 = _upload(client, token, "Name,Phone\nLate Patient,9810000777\n".encode()).json()
+    preview2 = _upload(client, token, "Name,Phone\nLate Patient,1010000777\n".encode()).json()
     batch2 = client.post("/imports", json={"file_id": preview2["file_id"], "mapping": preview2["mapping"]}, headers=auth(token)).json()
     _sql(clinic_id, "UPDATE import_batches SET undo_deadline = now() - interval '1 minute' WHERE id = :id RETURNING 1", id=batch2["id"])
     late = client.post(f"/imports/{batch2['id']}/undo", headers=auth(token))

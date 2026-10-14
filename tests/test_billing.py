@@ -14,7 +14,7 @@ def _setup(slug="smile"):
     return clinic_id, owner, desk, doctor
 
 
-def _patient(client, token, name="Rahul Sharma", phone="9810012345"):
+def _patient(client, token, name="Rahul Sharma", phone="1010012345"):
     return client.post("/patients", json={"name": name, "phone": phone, "birth_year": 1990}, headers=auth(token)).json()
 
 
@@ -154,7 +154,7 @@ def test_an_opening_balance_is_added_once(client):
     second = client.post(f"/patients/{patient['id']}/opening-balance", json={"amount_paise": 100}, headers=auth(token))
     assert second.status_code == 409
 
-    other = _patient(client, token, name="Asha Rao", phone="9810099999")
+    other = _patient(client, token, name="Asha Rao", phone="1010099999")
     credit = client.post(f"/patients/{other['id']}/opening-balance", json={"amount_paise": -40000}, headers=auth(token)).json()
     assert (credit["outstanding_paise"], credit["entries"][0]["description"]) == (-40000, "Opening credit")
     zero = client.post(f"/patients/{other['id']}/opening-balance", json={"amount_paise": 0}, headers=auth(token))
@@ -164,9 +164,9 @@ def test_an_opening_balance_is_added_once(client):
 def test_dues_list_who_owes_most_first(client):
     _, _, desk, doctor = _setup()
     token = sign_in(client, desk)
-    small = _patient(client, token, name="Asha Rao", phone="9810000001")
-    big = _patient(client, token, name="Vikram Singh", phone="9810000002")
-    paid_up = _patient(client, token, name="Meera Iyer", phone="9810000003")
+    small = _patient(client, token, name="Asha Rao", phone="1010000001")
+    big = _patient(client, token, name="Vikram Singh", phone="1010000002")
+    paid_up = _patient(client, token, name="Meera Iyer", phone="1010000003")
     for p in (small, big, paid_up):
         _consult(client, token, p["id"], doctor.id)
     _rct(client, token, big["id"], doctor.id)
@@ -208,3 +208,82 @@ def test_a_clinic_without_its_own_payment_modes_still_takes_payments(client):
     assert bill["payment_modes"] == ["Cash", "Card", "UPI"]
     assert _pay(client, token, patient["id"], 50000, mode="Cash").status_code == 201
     assert _pay(client, token, patient["id"], 50000, mode="Cheque").status_code == 400
+
+
+def _visit(client, token, patient_id, doctor_id):
+    body = {"doctor_id": str(doctor_id), "chief_complaint": "Review", "oral_examination": "Healing well"}
+    return client.post(f"/patients/{patient_id}/consultations", json=body, headers=auth(token)).json()
+
+
+def _fee(client, token, consultation_id, **price):
+    body = {"price_paise": 50000, **price}
+    return client.put(f"/consultations/{consultation_id}/fee", json=body, headers=auth(token))
+
+
+def test_a_consultation_fee_is_discounted_or_waived_from_the_bill(client):
+    _, owner, desk, doctor = _setup()
+    token = sign_in(client, desk)
+    patient = _patient(client, token)
+    visit = _visit(client, token, patient["id"], doctor.id)
+
+    half = _fee(client, token, visit["id"], discount_type="percent", discount_value=5000)
+    assert half.status_code == 200, half.text
+    bill = half.json()
+    assert bill["outstanding_paise"] == 25000
+    assert [(e["description"], e["amount_paise"]) for e in bill["entries"]] == [
+        ("Consultation fee", 50000),
+        ("Consultation fee: Discount 50%", -25000),
+    ]
+    charge = bill["charges"][0]
+    assert (charge["kind"], charge["price_paise"], charge["discount_type"], charge["final_paise"], charge["billed_paise"]) == (
+        "consultation", 50000, "percent", 25000, 25000,
+    )
+
+    # Waived: only the difference is added again, and there is nothing left to invoice.
+    free = _fee(client, token, visit["id"], discount_type="percent", discount_value=10000).json()
+    assert free["outstanding_paise"] == 0
+    assert free["entries"][-1]["amount_paise"] == -25000
+    assert client.get(f"/patients/{patient['id']}/invoices", headers=auth(token)).json()["invoiceable"] == []
+
+    # An increase on a higher fee.
+    more = _fee(client, token, visit["id"], price_paise=60000, adjustment_type="amount", adjustment_value=10000).json()
+    assert more["charges"][0]["final_paise"] == 70000
+    assert more["outstanding_paise"] == 70000
+
+    # Saving the same price again adds nothing.
+    again = _fee(client, token, visit["id"], price_paise=60000, adjustment_type="amount", adjustment_value=10000).json()
+    assert len(again["entries"]) == len(more["entries"])
+
+    doctor_token = sign_in(client, doctor)
+    assert _fee(client, doctor_token, visit["id"]).status_code == 403
+    assert _fee(client, token, visit["id"], discount_type="amount", discount_value=90000).status_code == 422
+
+
+def test_a_charge_on_an_issued_invoice_keeps_its_price_until_the_invoice_is_cancelled(client):
+    _, owner, desk, doctor = _setup()
+    token = sign_in(client, desk)
+    patient = _patient(client, token)
+    visit = _visit(client, token, patient["id"], doctor.id)
+    rct = _rct(client, token, patient["id"], doctor.id)
+    items = client.get(f"/patients/{patient['id']}/invoices", headers=auth(token)).json()["invoiceable"]
+    invoice = client.post(
+        f"/patients/{patient['id']}/invoices",
+        json={"consultation_ids": [i["id"] for i in items if i["kind"] == "consultation"],
+              "treatment_ids": [i["id"] for i in items if i["kind"] == "treatment"]},
+        headers=auth(token),
+    ).json()["invoices"][0]
+
+    bill = client.get(f"/patients/{patient['id']}/bill", headers=auth(token)).json()
+    assert {c["invoice_number"] for c in bill["charges"]} == {invoice["number_text"]}
+    locked = _fee(client, token, visit["id"], discount_type="percent", discount_value=5000)
+    assert locked.status_code == 409
+    assert locked.json()["detail"] == f"This charge is on invoice {invoice['number_text']}. Cancel that invoice first, then change the price."
+    treatment_locked = client.put(f"/treatments/{rct['id']}/price", json={"price_paise": 600000}, headers=auth(token))
+    assert treatment_locked.status_code == 409
+
+    client.post(f"/invoices/{invoice['id']}/cancel", json={"reason": "Giving a discount"}, headers=auth(token))
+    assert _fee(client, token, visit["id"], discount_type="percent", discount_value=5000).status_code == 200
+    assert client.put(f"/treatments/{rct['id']}/price", json={"price_paise": 600000}, headers=auth(token)).status_code == 200
+    charges = {c["kind"]: c for c in client.get(f"/patients/{patient['id']}/bill", headers=auth(token)).json()["charges"]}
+    assert (charges["consultation"]["final_paise"], charges["treatment"]["final_paise"]) == (25000, 600000)
+    assert charges["treatment"]["invoice_number"] is None

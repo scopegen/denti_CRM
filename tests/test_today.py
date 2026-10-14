@@ -15,7 +15,7 @@ def _setup(slug="smile"):
     return clinic_id, owner
 
 
-def _register(client, token, name="Rahul Sharma", phone="98100 12345"):
+def _register(client, token, name="Rahul Sharma", phone="10100 12345"):
     response = client.post("/patients", json={"name": name, "phone": phone, "birth_year": 1990}, headers=auth(token))
     assert response.status_code == 201, response.text
     return response.json()
@@ -142,7 +142,7 @@ def test_filter_arrivals_by_doctor(client):
     doctor = make_staff(clinic_id, "smile", "doc@smile.test", "doctor")
     token = sign_in(client, owner)
     rahul = _register(client, token)
-    neha = _register(client, token, "Neha Singh", "99990 55555")
+    neha = _register(client, token, "Neha Singh", "10990 55555")
     client.post("/arrivals", json={"patient_id": rahul["id"], "preferred_doctor_id": str(doctor.id)}, headers=auth(token))
     client.post("/arrivals", json={"patient_id": neha["id"]}, headers=auth(token))
 

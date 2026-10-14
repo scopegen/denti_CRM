@@ -30,7 +30,7 @@ def test_owner_sees_the_plan_and_how_much_is_used(client):
     _subscribe(clinic_id)
     token = sign_in(client, owner)
     for n in range(3):
-        client.post("/patients", json={"name": f"Patient {n}", "phone": f"98100000{n}0", "birth_year": 1990}, headers=auth(token))
+        client.post("/patients", json={"name": f"Patient {n}", "phone": f"10100000{n}0", "birth_year": 1990}, headers=auth(token))
 
     body = client.get("/plan", headers=auth(token)).json()
     assert body["plan"] == "standard"

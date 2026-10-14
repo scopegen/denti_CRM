@@ -22,7 +22,7 @@ def _services(client, token):
 
 
 def _patient(client, token):
-    return client.post("/patients", json={"name": "Rohan Das", "phone": "9860012345", "birth_year": 1980}, headers=auth(token)).json()
+    return client.post("/patients", json={"name": "Rohan Das", "phone": "1060012345", "birth_year": 1980}, headers=auth(token)).json()
 
 
 def _two_options(services, doctor_id, **extra):

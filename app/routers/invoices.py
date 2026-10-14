@@ -59,6 +59,26 @@ def _on_issued_invoices(db: Session, patient_id: uuid.UUID) -> tuple[set[uuid.UU
     return {c for c, _ in rows if c}, {t for _, t in rows if t}
 
 
+def issued_invoice_numbers(db: Session, clinic: Clinic, patient_id: uuid.UUID) -> dict[uuid.UUID, str]:
+    """For each consultation or treatment on an issued invoice, that invoice's number. While it
+    is on one, its price cannot change: the invoice and the bill would disagree."""
+    rows = db.execute(
+        select(InvoiceLine.consultation_id, InvoiceLine.treatment_id, Invoice)
+        .join(Invoice, Invoice.id == InvoiceLine.invoice_id)
+        .where(Invoice.patient_id == patient_id, Invoice.status == "issued")
+    ).all()
+    return {(c or t): number_text(clinic, invoice) for c, t, invoice in rows}
+
+
+def refuse_if_invoiced(db: Session, clinic: Clinic, patient_id: uuid.UUID, charge_id: uuid.UUID) -> None:
+    number = issued_invoice_numbers(db, clinic, patient_id).get(charge_id)
+    if number:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This charge is on invoice {number}. Cancel that invoice first, then change the price.",
+        )
+
+
 def invoiceable(db: Session, patient_id: uuid.UUID) -> list[InvoiceableItem]:
     """Consultation fees and started treatments on the bill that are on no issued invoice."""
     taken_consultations, taken_treatments = _on_issued_invoices(db, patient_id)
@@ -68,11 +88,12 @@ def invoiceable(db: Session, patient_id: uuid.UUID) -> list[InvoiceableItem]:
         select(Consultation, func.sum(LedgerEntry.amount_paise), Staff.name)
         .join(LedgerEntry, LedgerEntry.consultation_id == Consultation.id)
         .join(Staff, Staff.id == Consultation.doctor_id)
-        .where(Consultation.patient_id == patient_id, LedgerEntry.kind == "consultation_fee")
+        # The fee and any change to it made from the bill (a discount, or waiving it).
+        .where(Consultation.patient_id == patient_id, LedgerEntry.kind.in_(("consultation_fee", "price_change")))
         .group_by(Consultation.id, Staff.name)
     ).all()
     for c, amount, doctor in fees:
-        if c.id not in taken_consultations and amount:
+        if c.id not in taken_consultations and amount and amount > 0:
             items.append(
                 InvoiceableItem(kind="consultation", id=c.id, description=f"Consultation, {doctor}", teeth=[], on=c.consult_date, amount_paise=int(amount))
             )

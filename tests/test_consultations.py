@@ -16,7 +16,7 @@ def _setup(slug="smile"):
 
 
 def _patient(client, token):
-    response = client.post("/patients", json={"name": "Rahul Sharma", "phone": "98100 12345", "birth_year": 1990}, headers=auth(token))
+    response = client.post("/patients", json={"name": "Rahul Sharma", "phone": "10100 12345", "birth_year": 1990}, headers=auth(token))
     return response.json()
 
 

@@ -26,6 +26,7 @@ from app.models import (
     Visit,
 )
 from app.prescriptions import latest_versions, prescription_out, save_prescription
+from app.routers.invoices import refuse_if_invoiced
 from app.routers.today import mark_seen
 from app.schemas import (
     HandoffIn,
@@ -352,6 +353,7 @@ def set_price(treatment_id: uuid.UUID, payload: TreatmentPriceIn, request: Reque
     t = _treatment(db, treatment_id)
     if t.status == "cancelled":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This treatment is cancelled.")
+    refuse_if_invoiced(db, clinic, t.patient_id, t.id)
     fields = ["price_paise", "adjustment_type", "adjustment_value", "discount_type", "discount_value"]
     wanted = payload.model_dump()
     if payload.discount_type == "amount":

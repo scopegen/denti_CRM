@@ -15,7 +15,7 @@ def _setup(slug="smile"):
 
 def _billed_patient(client, token, doctor_id, discount=None):
     """A patient with a consultation fee (₹500), a started root canal (₹6,500) and a planned crown."""
-    patient = client.post("/patients", json={"name": "Rohan Das", "phone": "9860012345", "birth_year": 1980}, headers=auth(token)).json()
+    patient = client.post("/patients", json={"name": "Rohan Das", "phone": "1060012345", "birth_year": 1980}, headers=auth(token)).json()
     client.post(
         f"/patients/{patient['id']}/consultations",
         json={"doctor_id": str(doctor_id), "chief_complaint": "Pain", "oral_examination": "Caries"},

@@ -4,7 +4,7 @@ from tests.conftest import add_picklist, auth, make_clinic, make_staff, sign_in
 CONDITIONS = ["Diabetes", "Pregnancy"]
 
 
-def _patient(name="Rahul Sharma", phone="98100 12345", **extra):
+def _patient(name="Rahul Sharma", phone="10100 12345", **extra):
     body = {"name": name, "phone": phone, "birth_year": 1990}
     body.update(extra)
     return body
@@ -24,13 +24,13 @@ def test_register_numbers_patients_per_clinic(client):
     token_b = sign_in(client, owner_b)
 
     first = client.post("/patients", json=_patient(), headers=auth(token_a)).json()
-    second = client.post("/patients", json=_patient("Neha Singh", "98100 99999"), headers=auth(token_a)).json()
+    second = client.post("/patients", json=_patient("Neha Singh", "10100 99999"), headers=auth(token_a)).json()
     other_clinic = client.post("/patients", json=_patient(), headers=auth(token_b)).json()
 
     assert (first["patient_number"], first["code"]) == (1, "ALPHA-0001")
     assert (second["patient_number"], second["code"]) == (2, "ALPHA-0002")
     assert (other_clinic["patient_number"], other_clinic["code"]) == (1, "BETA-0001")
-    assert first["phone"] == "9810012345"
+    assert first["phone"] == "1010012345"
 
 
 def test_same_phone_needs_confirmation(client):
@@ -51,7 +51,7 @@ def test_same_phone_needs_confirmation(client):
 def test_date_of_birth_or_birth_year_is_required(client):
     _, owner = _clinic_with_owner()
     token = sign_in(client, owner)
-    response = client.post("/patients", json={"name": "No Age", "phone": "98100 11111"}, headers=auth(token))
+    response = client.post("/patients", json={"name": "No Age", "phone": "10100 11111"}, headers=auth(token))
     assert response.status_code == 422
 
 
@@ -61,7 +61,7 @@ def test_medical_conditions_must_come_from_the_clinic_list(client):
     ok = client.post("/patients", json=_patient(medical_conditions=["Diabetes"]), headers=auth(token))
     assert ok.status_code == 201
     bad = client.post(
-        "/patients", json=_patient("X", "98100 22222", medical_conditions=["Made Up"]), headers=auth(token)
+        "/patients", json=_patient("X", "10100 22222", medical_conditions=["Made Up"]), headers=auth(token)
     )
     assert bad.status_code == 422
 
@@ -69,8 +69,8 @@ def test_medical_conditions_must_come_from_the_clinic_list(client):
 def test_search_by_name_phone_and_patient_id(client):
     _, owner = _clinic_with_owner()
     token = sign_in(client, owner)
-    client.post("/patients", json=_patient("Rahul Sharma", "98100 12345"), headers=auth(token))
-    client.post("/patients", json=_patient("Neha Singh", "99990 55555"), headers=auth(token))
+    client.post("/patients", json=_patient("Rahul Sharma", "10100 12345"), headers=auth(token))
+    client.post("/patients", json=_patient("Neha Singh", "10990 55555"), headers=auth(token))
 
     def names(q):
         return [p["name"] for p in client.get("/patients", params={"q": q}, headers=auth(token)).json()["items"]]
@@ -85,7 +85,7 @@ def test_list_is_paged(client):
     _, owner = _clinic_with_owner()
     token = sign_in(client, owner)
     for i in range(3):
-        client.post("/patients", json=_patient(f"Patient {i}", f"98100 0000{i}"), headers=auth(token))
+        client.post("/patients", json=_patient(f"Patient {i}", f"10100 0000{i}"), headers=auth(token))
     page = client.get("/patients", params={"page": 2, "page_size": 2}, headers=auth(token)).json()
     assert page["total"] == 3
     assert len(page["items"]) == 1
@@ -96,9 +96,9 @@ def test_plan_limit_counts_every_patient_ever_registered(client, monkeypatch):
     _, owner = _clinic_with_owner(plan="basic")
     token = sign_in(client, owner)
     for i in range(2):
-        assert client.post("/patients", json=_patient(f"P{i}", f"98100 0000{i}"), headers=auth(token)).status_code == 201
+        assert client.post("/patients", json=_patient(f"P{i}", f"10100 0000{i}"), headers=auth(token)).status_code == 201
 
-    over = client.post("/patients", json=_patient("P3", "98100 00003"), headers=auth(token))
+    over = client.post("/patients", json=_patient("P3", "10100 00003"), headers=auth(token))
     assert over.status_code == 409
     assert over.json()["detail"]["code"] == "plan_limit"
     stats = client.get("/patients/stats", headers=auth(token)).json()
@@ -126,7 +126,7 @@ def test_edit_records_what_changed(client):
 
     edited = client.patch(
         f"/patients/{created['id']}",
-        json=_patient(phone="98100 12345", city="Noida", medical_conditions=["Pregnancy"]),
+        json=_patient(phone="10100 12345", city="Noida", medical_conditions=["Pregnancy"]),
         headers=auth(token),
     )
     assert edited.status_code == 200

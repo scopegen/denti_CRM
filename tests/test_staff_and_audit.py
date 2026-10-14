@@ -97,8 +97,8 @@ def test_the_activity_log_filters_by_person_patient_action_and_date(client):
     owner = make_staff(clinic_id, "smile", "owner@smile.test", "owner")
     desk = make_staff(clinic_id, "smile", "desk@smile.test", "admin")
     desk_token = sign_in(client, desk)
-    first = client.post("/patients", json={"name": "Asha Rao", "phone": "9810000001", "birth_year": 1990}, headers=auth(desk_token)).json()
-    client.post("/patients", json={"name": "Vikram Singh", "phone": "9810000002", "birth_year": 1980}, headers=auth(desk_token))
+    first = client.post("/patients", json={"name": "Asha Rao", "phone": "1010000001", "birth_year": 1990}, headers=auth(desk_token)).json()
+    client.post("/patients", json={"name": "Vikram Singh", "phone": "1010000002", "birth_year": 1980}, headers=auth(desk_token))
     client.get(f"/patients/{first['code']}", headers=auth(desk_token))
     token = sign_in(client, owner)
 
