@@ -338,6 +338,23 @@ class ClinicSettings(Base):
     # WhatsApp: the language messages open in, and where review requests send patients.
     whatsapp_language: Mapped[str] = mapped_column(String(2), nullable=False, default="en")
     google_review_url: Mapped[str | None] = mapped_column(String(500))
+    # The clinic's details and letterhead, printed on prescriptions, invoices and estimates.
+    tagline: Mapped[str | None] = mapped_column(String(120))
+    address: Mapped[str | None] = mapped_column(String(300))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    email: Mapped[str | None] = mapped_column(String(255))
+    website: Mapped[str | None] = mapped_column(String(200))
+    gstin: Mapped[str | None] = mapped_column(String(15))
+    logo_file_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # Standard and Pro: the letterhead's colour and design ("classic", "centred" or "band").
+    brand_colour: Mapped[str | None] = mapped_column(String(7))
+    letterhead_design: Mapped[str] = mapped_column(String(20), nullable=False, default="classic")
+    footer_text: Mapped[str | None] = mapped_column(String(200))
+    # Pro: documents without "Powered by Denti".
+    hide_powered_by: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Paper with the letterhead already printed: documents leave the top for it.
+    preprinted_letterhead: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    preprinted_top_margin_mm: Mapped[int] = mapped_column(Integer, nullable=False, default=40)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

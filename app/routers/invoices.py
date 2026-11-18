@@ -259,4 +259,4 @@ def build_invoice_pdf(db: Session, clinic: Clinic, invoice: Invoice) -> tuple[by
         cancelled_note=invoice.cancel_reason if invoice.status == "cancelled" else None,
         balance_note=balance_note,
     )
-    return invoice_pdf(letterhead_for(clinic), doc), f"Invoice {text.replace('/', '-')}.pdf"
+    return invoice_pdf(letterhead_for(db, clinic), doc), f"Invoice {text.replace('/', '-')}.pdf"

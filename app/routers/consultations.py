@@ -349,4 +349,4 @@ def build_prescription_pdf(db: Session, clinic: Clinic, prescription: Prescripti
     doc = prescription_document(db, clinic, prescription, chosen)
     patient = db.get(Patient, prescription.patient_id)
     name = f"Prescription {patient_code(clinic, patient.patient_number)} {doc.date_text}.pdf"
-    return prescription_pdf(letterhead_for(clinic), doc), name
+    return prescription_pdf(letterhead_for(db, clinic), doc), name

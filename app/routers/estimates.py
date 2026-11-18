@@ -282,4 +282,4 @@ def build_estimate_pdf(db: Session, clinic: Clinic, estimate: Estimate) -> tuple
         patient_name=patient.name, patient_code=patient_code(clinic, patient.patient_number), phone=patient.phone,
         doctor=doctor_for(db, db.get(Staff, estimate.doctor_id)), options=option_docs, notes=estimate.notes, status_note=status_note,
     )
-    return estimate_pdf(letterhead_for(clinic), doc), f"Estimate {number_text(estimate).replace('/', '-')}.pdf"
+    return estimate_pdf(letterhead_for(db, clinic), doc), f"Estimate {number_text(estimate).replace('/', '-')}.pdf"

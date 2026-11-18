@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,6 +56,19 @@ class Settings(BaseSettings):
     smtp_port: int = 465
     smtp_user: str | None = None
     smtp_password: str | None = None
+
+    @model_validator(mode="after")
+    def _emails_can_be_sent(self) -> "Settings":
+        # Signing up and signing in both need a code sent by email, so a live server that only
+        # printed emails in its log would let nobody in. It refuses to start that way instead.
+        if self.environment == "production" and self.email_backend == "console":
+            raise ValueError(
+                "ENVIRONMENT is production but EMAIL_BACKEND is console, so sign up and sign in codes would never be "
+                "emailed. Set EMAIL_BACKEND=smtp, EMAIL_FROM and the SMTP_ settings in .env (see .env.example)."
+            )
+        if self.email_backend == "smtp" and not (self.smtp_host and self.smtp_user and self.smtp_password):
+            raise ValueError("EMAIL_BACKEND is smtp, but SMTP_HOST, SMTP_USER or SMTP_PASSWORD is missing in .env.")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -20,9 +20,9 @@ from app.models import RESERVED_CLINIC_SLUGS, Clinic, PendingSignup
 from app.plans import FEATURES, GST_PERCENT, PLAN_NAMES, PLANS, PRICES, STARTER_PACK_MONTHS
 from app.routers.auth import _start_session
 from app.schemas import (
-    AddressCheckOut,
     PlanFeature,
     PlanOption,
+    SignupAddressOut,
     SignupDone,
     SignupIn,
     SignupPlansOut,
@@ -40,20 +40,36 @@ from app.subscriptions import payment_method
 
 router = APIRouter(prefix="/signup", tags=["sign up"])
 
-SLUG = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 PREFIX = re.compile(r"^[A-Z0-9]{2,12}$")
 SIGNUPS_PER_EMAIL_PER_HOUR = 5
 SIGNUPS_PER_ADDRESS_PER_HOUR = 20
+SLUG_MAX = 40
+# A clinic named only in other scripts (in Hindi, say) has no letters to make an address from.
+FALLBACK_SLUG = "clinic"
+CREATE_TRIES = 3
 
 
-def _address_problem(db: Session, slug: str) -> str | None:
-    if len(slug) < 2 or len(slug) > 40 or not SLUG.match(slug) or "--" in slug:
-        return "Use small letters, numbers and single hyphens, for example smile-dental."
-    if slug in RESERVED_CLINIC_SLUGS:
-        return "This address is used by Denti itself. Please choose another."
-    if db.scalar(select(func.count()).select_from(Clinic).where(Clinic.slug == slug)):
-        return "Another clinic already uses this address. Please choose another."
-    return None
+def slug_from(name: str) -> str:
+    """The clinic's name as its web address: "Dr Mehta's Smile & Care" gives "dr-mehtas-smile-care",
+    small letters and numbers with single hyphens between the words."""
+    words = re.findall(r"[a-z0-9]+", name.lower().replace("'", "").replace("’", ""))
+    slug = "-".join(words)[:SLUG_MAX].strip("-")
+    return slug if len(slug) >= 2 else FALLBACK_SLUG
+
+
+def free_address(db: Session, name: str) -> str:
+    """The web address a clinic of this name gets: its name as above, or when another clinic or
+    one of Denti's own pages (login, signup and the like) already has that, the first free one of
+    name-2, name-3 and on. Clinics never choose an address, so two clinics with the same name
+    simply get different numbers."""
+    base = slug_from(name)
+    number = 1
+    while True:
+        ending = "" if number == 1 else f"-{number}"
+        slug = base[: SLUG_MAX - len(ending)].rstrip("-") + ending
+        if slug not in RESERVED_CLINIC_SLUGS and not db.scalar(select(func.count()).select_from(Clinic).where(Clinic.slug == slug)):
+            return slug
+        number += 1
 
 
 def _starter_price(plan: str) -> tuple[int, int]:
@@ -79,12 +95,10 @@ def signup_plans():
     )
 
 
-@router.get("/address", response_model=AddressCheckOut)
-def check_address(slug: str = Query(max_length=60), db: Session = Depends(get_db)):
-    """Whether a clinic web address is free, as the owner types it."""
-    slug = slug.strip().lower()
-    problem = _address_problem(db, slug)
-    return AddressCheckOut(slug=slug, available=problem is None, reason=problem)
+@router.get("/address", response_model=SignupAddressOut)
+def address_for(name: str = Query(max_length=120), db: Session = Depends(get_db)):
+    """The web address a clinic of this name would get, shown as the owner types the name."""
+    return SignupAddressOut(slug=free_address(db, name))
 
 
 def _too_many(db: Session, email: str, ip: str | None) -> bool:
@@ -119,9 +133,6 @@ def _started(signup: PendingSignup) -> SignupStarted:
 @router.post("", response_model=SignupStarted, status_code=status.HTTP_201_CREATED)
 def start_signup(payload: SignupIn, request: Request, db: Session = Depends(get_db)):
     """Checks the details and emails the owner a code. No clinic exists yet."""
-    problem = _address_problem(db, payload.slug)
-    if problem:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=problem)
     if payload.patient_id_prefix and not PREFIX.match(payload.patient_id_prefix):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="The patient ID prefix may use 2 to 12 capital letters or numbers."
@@ -132,7 +143,7 @@ def start_signup(payload: SignupIn, request: Request, db: Session = Depends(get_
             status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many sign ups were started. Please wait an hour and try again."
         )
     signup = PendingSignup(
-        id=uuid7(), plan=payload.plan, clinic_name=payload.clinic_name, slug=payload.slug,
+        id=uuid7(), plan=payload.plan, clinic_name=payload.clinic_name, slug=free_address(db, payload.clinic_name),
         patient_id_prefix=payload.patient_id_prefix, owner_name=payload.owner_name, email=payload.email, phone=payload.phone,
         password_hash=hash_password(payload.password), owner_treats_patients=payload.owner_treats_patients,
         ip=ip, device=request_device(request),
@@ -190,15 +201,22 @@ def verify_and_create(signup_id: uuid.UUID, payload: SignupVerifyIn, request: Re
     signup.payment_method = method
     if paid:
         signup.payment_ref = f"TEST{secrets.token_hex(6).upper()}"
-    db.flush()
-    try:
-        with db.begin_nested():
-            clinic_id = db.execute(text("SELECT create_signed_up_clinic(:id, :paid)"), {"id": signup.id, "paid": paid}).scalar()
-    except IntegrityError:
+    # The address is chosen again now: another clinic of the same name may have signed up since.
+    # If one takes it in the very moment between choosing and creating, the next free one is used.
+    for _ in range(CREATE_TRIES):
+        signup.slug = free_address(db, signup.clinic_name)
+        db.flush()
+        try:
+            with db.begin_nested():
+                clinic_id = db.execute(text("SELECT create_signed_up_clinic(:id, :paid)"), {"id": signup.id, "paid": paid}).scalar()
+            break
+        except IntegrityError:
+            continue
+    else:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Another clinic took this web address a moment ago. Please start again with another."
-        ) from None
+            status_code=status.HTTP_409_CONFLICT, detail="Your clinic could not be created just now. Please try the code again in a minute."
+        )
 
     use_clinic(db, clinic_id)
     clinic = db.get(Clinic, clinic_id)

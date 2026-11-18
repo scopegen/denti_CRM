@@ -289,6 +289,31 @@ def clinic_public(slug: str, db: Session = Depends(get_db)):
     return _find_clinic(db, slug)
 
 
+CLINIC_SEARCH_MIN = 2
+CLINIC_SEARCH_LIMIT = 6
+
+
+@router.get("/clinics", response_model=list[ClinicPublicOut])
+def search_clinics(q: str = "", db: Session = Depends(get_db)):
+    """Finding a clinic to sign in to by part of its name, or of its web address. Only names and
+    addresses, which every clinic's sign in page already shows; closed clinics never appear.
+    A few letters are needed and only a handful of matches come back, so the list of clinics
+    cannot be read out in one go. Names that start with the words typed come first."""
+    words = " ".join(q.split()).lower()
+    if len(words) < CLINIC_SEARCH_MIN:
+        return []
+    # The typed text is matched as plain text: % and _ mean nothing special here.
+    pattern = "%" + words.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    starts = func.lower(Clinic.name).startswith(words, autoescape=True)
+    return db.scalars(
+        select(Clinic)
+        .where(Clinic.status != "closed")
+        .where(func.lower(Clinic.name).like(pattern, escape="\\") | Clinic.slug.like(pattern, escape="\\"))
+        .order_by(starts.desc(), func.lower(Clinic.name), Clinic.slug)
+        .limit(CLINIC_SEARCH_LIMIT)
+    ).all()
+
+
 @router.post("/login", response_model=LoginResponse)
 def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     clinic = _find_clinic(db, payload.clinic)

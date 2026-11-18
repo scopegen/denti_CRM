@@ -50,18 +50,18 @@ GB = 1024**3
 _ALL = ("basic", "standard", "pro")
 _STANDARD_UP = ("standard", "pro")
 
-# What each plan includes, in the order the Plan page lists it.
+# What each plan includes, in the order the home page, sign up and the Plan page list it. Only
+# what Denti already does is listed here: a feature joins the list once it is built.
 FEATURES: list[tuple[str, tuple[str, ...]]] = [
     ("Patients, consultations, prescriptions and bills", _ALL),
     ("X-rays and photos", _ALL),
+    ("Your logo and clinic details on every document", _ALL),
+    ("Import your patient list from Excel", _ALL),
+    ("Dues list", _ALL),
     ("Activity log for the owner", _ALL),
-    ("Daily closing, dues list and full export", _ALL),
     ("Tooth chart", _STANDARD_UP),
     ("WhatsApp reminders", _STANDARD_UP),
-    ("Lab work tracking", _STANDARD_UP),
-    ("Monthly summary, reports by doctor and treatment, Excel", _STANDARD_UP),
     ("Letterhead designs and brand colour", _STANDARD_UP),
-    ("Doctor payouts, treatment acceptance, monthly report by email", ("pro",)),
     ('Remove "Powered by Denti" from documents', ("pro",)),
 ]
 

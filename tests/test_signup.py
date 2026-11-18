@@ -5,8 +5,8 @@ from app.config import settings
 from tests.conftest import auth, last_code_for, make_clinic, owner_engine
 
 DETAILS = {
-    "plan": "standard", "clinic_name": "Bright Smiles Dental", "slug": "bright-smiles", "patient_id_prefix": "bsd",
-    "owner_name": "Dr Meera Nair", "email": "Meera@BrightSmiles.in", "password": "BrightSmiles2026",
+    "plan": "standard", "clinic_name": "Bright Smiles Dental", "patient_id_prefix": "bsd",
+    "owner_name": "dr meera nair", "email": "Meera@BrightSmiles.in", "password": "BrightSmiles2026",
 }
 
 
@@ -33,7 +33,7 @@ def _clinic_rows(slug):
 def test_a_clinic_signs_up_confirms_its_email_and_lands_signed_in(client):
     plans = client.get("/signup/plans").json()
     assert [p["key"] for p in plans["plans"]] == ["basic", "standard", "pro"]
-    assert client.get("/signup/address?slug=bright-smiles").json()["available"] is True
+    assert client.get("/signup/address?name=Bright Smiles Dental").json()["slug"] == "bright-smiles-dental"
 
     started = _start(client)
     assert started.status_code == 201, started.text
@@ -42,36 +42,68 @@ def test_a_clinic_signs_up_confirms_its_email_and_lands_signed_in(client):
     assert (body["sent_to"], body["payment_method"]) == ("m****@brightsmiles.in", "test")
     assert email.outbox[-1].subject.startswith("Your Denti sign up code:")
     # Nothing exists until the email is confirmed.
-    assert _clinic_rows("bright-smiles") == (None, None)
+    assert _clinic_rows("bright-smiles-dental") == (None, None)
 
     done = client.post(f"/signup/{body['signup_id']}/verify", json={"code": last_code_for("meera@brightsmiles.in")})
     assert done.status_code == 200, done.text
     result = done.json()
-    assert (result["clinic_slug"], result["paid"]) == ("bright-smiles", True)
+    assert (result["clinic_slug"], result["paid"]) == ("bright-smiles-dental", True)
 
     me = client.get("/auth/me", headers=auth(result["session"]["access_token"])).json()
     assert (me["staff"]["email"], me["staff"]["role"], me["staff"]["treats_patients"]) == ("meera@brightsmiles.in", "owner", True)
+    # The owner's name was typed in small letters; it is saved with capitals.
+    assert me["staff"]["name"] == "Dr Meera Nair"
     assert (me["clinic"]["name"], me["clinic"]["plan"]) == ("Bright Smiles Dental", "standard")
-    clinic, counts = _clinic_rows("bright-smiles")
+    clinic, counts = _clinic_rows("bright-smiles-dental")
     assert clinic.patient_id_prefix == "BSD"
     assert counts[0] == 1 and counts[1] > 0 and counts[2] == 3 and counts[3] == "starter active"
     # The browser keeps the sign in, as after a normal sign in.
-    assert client.post("/auth/refresh", json={"clinic": "bright-smiles"}).status_code == 200
-    # The same sign up cannot be used twice, and the address is now taken.
+    assert client.post("/auth/refresh", json={"clinic": "bright-smiles-dental"}).status_code == 200
+    # The same sign up cannot be used twice, and the next clinic of that name gets a number.
     again = client.post(f"/signup/{body['signup_id']}/verify", json={"code": "000000"})
     assert again.status_code == 400
-    assert client.get("/signup/address?slug=bright-smiles").json()["available"] is False
+    assert client.get("/signup/address?name=Bright Smiles Dental").json()["slug"] == "bright-smiles-dental-2"
 
 
-def test_taken_reserved_or_badly_written_addresses_are_refused(client):
-    make_clinic("smile")
-    assert client.get("/signup/address?slug=smile").json()["reason"].startswith("Another clinic already uses")
-    assert client.get("/signup/address?slug=signup").json()["reason"].startswith("This address is used by Denti")
-    assert client.get("/signup/address?slug=Bad Name").json()["available"] is False
-    assert _start(client, slug="smile").status_code == 409
+def test_badly_written_details_are_refused(client):
     assert _start(client, patient_id_prefix="TOO-LONG-PREFIX").status_code == 422
     assert _start(client, password="short").status_code == 422
     assert email.outbox == []
+
+
+def _address(client, name):
+    return client.get("/signup/address", params={"name": name}).json()["slug"]
+
+
+def test_the_web_address_is_made_from_the_name_and_never_clashes(client):
+    make_clinic("smile")
+    make_clinic("smile-2")
+    # Words joined by hyphens, apostrophes dropped, anything else a single hyphen.
+    assert _address(client, "Dr Mehta's Smile & Care") == "dr-mehtas-smile-care"
+    assert _address(client, "  Bright   Smiles  ") == "bright-smiles"
+    # Taken by other clinics, or by Denti's own pages: the first free number.
+    assert _address(client, "Smile") == "smile-3"
+    assert _address(client, "Signup") == "signup-2"
+    # A name with no English letters still gets an address.
+    assert _address(client, "दंत क्लिनिक") == "clinic"
+    # Long names are cut to 40 characters, keeping room for a number.
+    long_name = "The Very Long Named Multispeciality Dental Hospital And Research Centre"
+    assert len(_address(client, long_name)) <= 40 and not _address(client, long_name).endswith("-")
+    make_clinic(_address(client, long_name))
+    second = _address(client, long_name)
+    assert second.endswith("-2") and len(second) <= 40
+
+    body = _start(client, clinic_name="Smile").json()
+    done = client.post(f"/signup/{body['signup_id']}/verify", json={"code": last_code_for("meera@brightsmiles.in")}).json()
+    assert done["clinic_slug"] == "smile-3"
+
+
+def test_a_clinic_that_takes_the_address_while_the_code_is_awaited_moves_the_new_one_on(client):
+    body = _start(client).json()
+    make_clinic("bright-smiles-dental")
+    done = client.post(f"/signup/{body['signup_id']}/verify", json={"code": last_code_for("meera@brightsmiles.in")})
+    assert done.status_code == 200, done.text
+    assert done.json()["clinic_slug"] == "bright-smiles-dental-2"
 
 
 def test_wrong_codes_run_out_and_a_new_code_can_be_asked_for(client, monkeypatch):
@@ -91,8 +123,8 @@ def test_wrong_codes_run_out_and_a_new_code_can_be_asked_for(client, monkeypatch
 
 def test_too_many_sign_ups_from_one_email_are_stopped(client):
     for n in range(5):
-        assert _start(client, slug=f"bright-{n}").status_code == 201
-    stopped = _start(client, slug="bright-9")
+        assert _start(client, clinic_name=f"Bright Smiles {n}").status_code == 201
+    stopped = _start(client, clinic_name="Bright Smiles 9")
     assert stopped.status_code == 429
 
 
@@ -103,7 +135,7 @@ def test_a_live_server_without_online_payment_creates_the_clinic_with_payment_du
     assert body["payment_method"] == "none"
     done = client.post(f"/signup/{body['signup_id']}/verify", json={"code": last_code_for("meera@brightsmiles.in")}).json()
     assert done["paid"] is False
-    assert _clinic_rows("bright-smiles")[1][3] == "starter past_due"
+    assert _clinic_rows("bright-smiles-dental")[1][3] == "starter past_due"
 
 
 def test_the_app_cannot_create_a_clinic_for_an_unconfirmed_sign_up(client):
@@ -119,4 +151,4 @@ def test_the_app_cannot_create_a_clinic_for_an_unconfirmed_sign_up(client):
         except DBAPIError as error:
             raised = str(error.orig)
     assert raised and "email not confirmed" in raised
-    assert _clinic_rows("bright-smiles") == (None, None)
+    assert _clinic_rows("bright-smiles-dental") == (None, None)

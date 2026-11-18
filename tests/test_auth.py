@@ -168,3 +168,46 @@ def test_codes_are_stored_hashed(client):
         stored = connection.execute(text("SELECT code_hash FROM login_codes")).scalar_one()
     assert code not in stored
     assert len(stored) == 64
+
+
+def _rename(clinic_id, name, status="active"):
+    with owner_engine.begin() as connection:
+        connection.execute(text("UPDATE clinics SET name = :name, status = :status WHERE id = :id"), {"id": clinic_id, "name": name, "status": status})
+
+
+def _found(client, q):
+    response = client.get("/auth/clinics", params={"q": q})
+    assert response.status_code == 200
+    return [(c["name"], c["slug"]) for c in response.json()]
+
+
+def test_staff_find_their_clinic_by_name_or_web_address(client):
+    _rename(make_clinic("smile-pune"), "Smile Dental Clinic")
+    _rename(make_clinic("smile-nagpur"), "Smile Dental Clinic")
+    _rename(make_clinic("bright"), "Bright Smile Dental")
+    _rename(make_clinic("gone"), "Smile Gone Dental", status="closed")
+
+    # Names that start with what was typed come first; the web address tells twins apart; a
+    # closed clinic never appears.
+    assert _found(client, "smile") == [
+        ("Smile Dental Clinic", "smile-nagpur"),
+        ("Smile Dental Clinic", "smile-pune"),
+        ("Bright Smile Dental", "bright"),
+    ]
+    assert _found(client, "  SMILE   dental ") == [
+        ("Smile Dental Clinic", "smile-nagpur"),
+        ("Smile Dental Clinic", "smile-pune"),
+        ("Bright Smile Dental", "bright"),
+    ]
+    assert _found(client, "smile-pune") == [("Smile Dental Clinic", "smile-pune")]
+    assert _found(client, "nobody here") == []
+
+
+def test_clinic_search_needs_a_few_letters_and_returns_only_a_handful(client):
+    for n in range(8):
+        make_clinic(f"care-{n}")
+    assert _found(client, "c") == []
+    assert len(_found(client, "care")) == 6
+    # Typed % and _ are plain text, not wildcards that would match every clinic.
+    assert _found(client, "%%") == []
+    assert _found(client, "__") == []

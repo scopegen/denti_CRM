@@ -28,6 +28,20 @@ def test_email_must_be_unique_within_the_clinic(client):
     assert again.status_code == 409
 
 
+def test_staff_names_are_saved_with_capitals_however_they_are_typed(client):
+    clinic = make_clinic("smile")
+    owner = make_staff(clinic, "smile", "owner@smile.test", "owner")
+    token = sign_in(client, owner)
+    added = client.post(
+        "/staff", json={**_new_staff("doctor", "doc@smile.test"), "name": "  dr rohan   d'souza "}, headers=auth(token)
+    )
+    assert added.status_code == 201, added.text
+    assert added.json()["name"] == "Dr Rohan D'Souza"
+    changed = client.patch(f"/staff/{added.json()['id']}", json={"name": "dr rohan mcDonald"}, headers=auth(token))
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["name"] == "Dr Rohan McDonald"
+
+
 def test_doctors_cannot_manage_staff(client):
     clinic = make_clinic("smile")
     make_staff(clinic, "smile", "owner@smile.test", "owner")

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
 
+from PIL import Image
 from xhtml2pdf import pisa
 
 FONTS = Path(__file__).parent / "fonts"
@@ -35,56 +36,99 @@ def _font(name: str) -> str:
     return (FONTS / name).resolve().as_uri()
 
 
-CSS = f"""
+def _mix(colour: str, other: str, amount: float) -> str:
+    """colour moved the given share of the way towards other; both are #rrggbb."""
+    a = [int(colour[i : i + 2], 16) for i in (1, 3, 5)]
+    b = [int(other[i : i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * amount):02x}" for x, y in zip(a, b))
+
+
+def _css(letterhead: "Letterhead") -> str:
+    """The stylesheet for one clinic's documents: its brand colour (Denti's blue when it has
+    none), and room at the top for the letterhead, or for paper with one already printed."""
+    accent = letterhead.accent or ACCENT
+    deep = _mix(letterhead.accent, "#000000", 0.35) if letterhead.accent else ACCENT_DEEP
+    soft = INK_SOFT
+    if letterhead.preprinted:
+        top = letterhead.top_margin_mm / 10
+        frames = f"@frame content_frame {{ top: {top:.1f}cm; left: 1.8cm; width: 17.4cm; height: {26.3 - top:.1f}cm; }}"
+    else:
+        frames = (
+            "@frame header_frame { -pdf-frame-content: header_content; top: 0.9cm; left: 1.8cm; width: 17.4cm; height: 4.1cm; }\n"
+            "  @frame content_frame { top: 5.2cm; left: 1.8cm; width: 17.4cm; height: 21.1cm; }"
+        )
+    return f"""
 @font-face {{ font-family: "Roboto"; src: url("{_font('Roboto-Regular.ttf')}"); }}
 @font-face {{ font-family: "Roboto"; src: url("{_font('Roboto-Bold.ttf')}"); font-weight: bold; }}
 @font-face {{ font-family: "Roboto"; src: url("{_font('Roboto-Italic.ttf')}"); font-style: italic; }}
 @page {{
   size: A4;
-  @frame header_frame {{ -pdf-frame-content: header_content; top: 0.9cm; left: 1.8cm; width: 17.4cm; height: 3cm; }}
-  @frame content_frame {{ top: 4.1cm; left: 1.8cm; width: 17.4cm; height: 22.2cm; }}
+  {frames}
   @frame footer_frame {{ -pdf-frame-content: footer_content; top: 26.8cm; left: 1.8cm; width: 17.4cm; height: 2.2cm; }}
 }}
 body {{ font-family: "Roboto", Helvetica, sans-serif; font-size: 11.5pt; color: {INK}; }}
 #header_content table {{ width: 100%; }}
-.clinic-name {{ font-size: 20pt; font-weight: bold; color: {ACCENT_DEEP}; margin: 0; }}
-.clinic-line {{ font-size: 10pt; color: {INK_SOFT}; margin: 2px 0 0; }}
+.clinic-name {{ font-size: 20pt; font-weight: bold; color: {deep}; margin: 0; }}
+.clinic-line {{ font-size: 9.5pt; line-height: 1.25; color: {soft}; margin: 0; }}
 .doctor-cell {{ text-align: right; vertical-align: top; }}
-.doctor-name {{ font-size: 15pt; font-weight: bold; color: {ACCENT_DEEP}; margin: 0; }}
-.doctor-line {{ font-size: 10pt; color: {INK_SOFT}; margin: 2px 0 0; }}
-.rule {{ color: {ACCENT}; background-color: {ACCENT}; height: 2px; border: none; margin: 6px 0 0; }}
-.date-stamp {{ text-align: right; font-size: 10.5pt; color: {INK_SOFT}; margin-bottom: 10px; }}
+.doctor-name {{ font-size: 15pt; font-weight: bold; color: {deep}; margin: 0; }}
+.doctor-line {{ font-size: 10pt; color: {soft}; margin: 2px 0 0; }}
+.rule {{ color: {accent}; background-color: {accent}; height: 2px; border: none; margin: 6px 0 0; }}
+.date-stamp {{ text-align: right; font-size: 10.5pt; color: {soft}; margin-bottom: 10px; }}
 table.fields {{ width: 100%; margin-bottom: 10px; }}
 table.fields td {{ padding: 2px 0; font-size: 11pt; vertical-align: top; }}
-.label {{ font-weight: bold; color: {INK_SOFT}; width: 22%; }}
+.label {{ font-weight: bold; color: {soft}; width: 22%; }}
 .value {{ width: 28%; }}
-.section-label {{ font-size: 10pt; font-weight: bold; color: {INK_SOFT}; margin: 10px 0 2px; }}
+.section-label {{ font-size: 10pt; font-weight: bold; color: {soft}; margin: 10px 0 2px; }}
 .section-text {{ margin: 0; font-size: 11.5pt; }}
-.rx {{ font-size: 18pt; font-style: italic; font-weight: bold; color: {ACCENT}; margin: 14px 0 4px; }}
+.rx {{ font-size: 18pt; font-style: italic; font-weight: bold; color: {accent}; margin: 14px 0 4px; }}
 .rx-line {{ font-size: 11.5pt; padding: 3px 0 3px 12px; }}
 .signature {{ text-align: right; margin-top: 30px; }}
 .signature img {{ height: 44pt; }}
 .signature-name {{ font-weight: bold; margin: 2px 0 0; }}
-.signature-line {{ font-size: 10pt; color: {INK_SOFT}; margin: 0; }}
+.signature-line {{ font-size: 10pt; color: {soft}; margin: 0; }}
 #footer_content {{ text-align: center; }}
-.footer-note {{ font-size: 9.5pt; color: {INK_SOFT}; font-style: italic; margin: 0 0 4px; }}
-.powered {{ font-size: 8.5pt; color: {INK_SOFT}; margin: 0; }}
-.doc-title {{ font-size: 16pt; font-weight: bold; color: {ACCENT_DEEP}; margin: 0 0 8px; }}
+.footer-note {{ font-size: 9.5pt; color: {soft}; font-style: italic; margin: 0 0 4px; }}
+.powered {{ font-size: 8.5pt; color: {soft}; margin: 0; }}
+.doc-title {{ font-size: 16pt; font-weight: bold; color: {deep}; margin: 0 0 8px; }}
 .cancelled {{ font-size: 12pt; font-weight: bold; color: #a8433a; border: 1.5px solid #a8433a; padding: 4px 8px; margin: 0 0 10px; }}
 table.items {{ width: 100%; margin-top: 10px; }}
-table.items th {{ font-size: 9.5pt; color: {INK_SOFT}; text-align: left; border-bottom: 1px solid {RULE}; padding: 4px 6px; }}
+table.items th {{ font-size: 9.5pt; color: {soft}; text-align: left; border-bottom: 1px solid {RULE}; padding: 4px 6px; }}
 table.items td {{ font-size: 11pt; border-bottom: 1px solid {RULE}; padding: 6px 6px; vertical-align: top; }}
 table.items .num {{ text-align: right; }}
 table.items tr.total td {{ font-weight: bold; border-bottom: none; padding-top: 8px; }}
-.small-note {{ font-size: 10pt; color: {INK_SOFT}; margin: 12px 0 0; }}
+.small-note {{ font-size: 10pt; color: {soft}; margin: 12px 0 0; }}
+.tagline {{ font-size: 10pt; line-height: 1.25; font-style: italic; color: {soft}; margin: 0 0 1px; }}
+.logo-cell {{ vertical-align: top; padding-right: 8pt; }}
+.centre {{ text-align: center; }}
+table.band {{ background-color: {accent}; }}
+table.band td {{ padding: 4pt 8pt; vertical-align: middle; }}
+td.band-logo {{ background-color: #ffffff; padding: 5pt; }}
+.band-name {{ font-size: 17pt; font-weight: bold; color: #ffffff; margin: 0; }}
+.band-tagline {{ font-size: 10pt; line-height: 1.25; font-style: italic; color: #eef3f8; margin: 0; }}
+table.under-band td {{ padding: 3pt 0 0 0; }}
+.doctor-strip {{ text-align: right; font-size: 9.5pt; line-height: 1.25; color: {soft}; margin: 3px 0 0; }}
+.doctor-strip-name {{ font-weight: bold; color: {deep}; font-size: 11.5pt; }}
+.footer-own {{ font-size: 9.5pt; color: {soft}; margin: 0 0 3px; }}
 """
 
 
 @dataclass
 class Letterhead:
     clinic_name: str
-    lines: list[str] = field(default_factory=list)  # address, phone, email: whatever the clinic has set
+    lines: list[str] = field(default_factory=list)  # address, contact line, GSTIN: whatever the clinic has set
     show_powered_by: bool = True
+    tagline: str | None = None
+    logo_png: bytes | None = None
+    # Standard and Pro: the clinic's colour (None is Denti's blue) and design.
+    accent: str | None = None
+    design: str = "classic"  # "classic", "centred" or "band"
+    # A line of the clinic's own at the foot of every page.
+    footer_text: str | None = None
+    # Paper with the letterhead already printed: nothing is printed at the top, and the page
+    # starts this far down.
+    preprinted: bool = False
+    top_margin_mm: int = 40
 
 
 @dataclass
@@ -124,30 +168,109 @@ def _lines(value: str | None) -> str:
     return "<br/>".join(escape(line) for line in (value or "").splitlines())
 
 
+def _logo_img(png: bytes, max_width_pt: float, max_height_pt: float) -> str:
+    """The logo at the largest size that fits the space, keeping its shape."""
+    with Image.open(io.BytesIO(png)) as image:
+        width, height = image.size
+    scale = min(max_width_pt / width, max_height_pt / height)
+    encoded = base64.b64encode(png).decode("ascii")
+    return f'<img src="data:image/png;base64,{encoded}" style="width: {width * scale:.1f}pt; height: {height * scale:.1f}pt;" />'
+
+
+def _doctor_block(doctor: Doctor | None) -> str:
+    """The doctor's name and details, one under the other, for the classic design."""
+    if not doctor:
+        return ""
+    details = " · ".join(x for x in [doctor.qualification, doctor.specialty] if x)
+    html = f'<p class="doctor-name">{_e(doctor.name)}</p>'
+    if details:
+        html += f'<p class="doctor-line">{_e(details)}</p>'
+    if doctor.registration_no:
+        html += f'<p class="doctor-line">Reg. No. {_e(doctor.registration_no)}</p>'
+    return html
+
+
+def _doctor_strip(doctor: Doctor | None, two_lines: bool = False) -> str:
+    """The doctor in a short strip: one line under the centred letterhead, or the name with the
+    details on the line below it, beside the band design's details."""
+    if not doctor:
+        return ""
+    rest = [x for x in [doctor.qualification, doctor.specialty] if x]
+    if doctor.registration_no:
+        rest.append(f"Reg. No. {doctor.registration_no}")
+    details = " · ".join(_e(x) for x in rest)
+    if two_lines:
+        tail = f"<br/>{details}" if details else ""
+    else:
+        tail = f" · {details}" if details else ""
+    return f'<p class="doctor-strip"><span class="doctor-strip-name">{_e(doctor.name)}</span>{tail}</p>'
+
+
 def _header(letterhead: Letterhead, doctor: Doctor | None) -> str:
-    clinic_lines = "".join(f'<p class="clinic-line">{_e(line)}</p>' for line in letterhead.lines if line)
-    doctor_html = ""
-    if doctor:
-        details = " · ".join(x for x in [doctor.qualification, doctor.specialty] if x)
-        doctor_html = f'<p class="doctor-name">{_e(doctor.name)}</p>'
-        if details:
-            doctor_html += f'<p class="doctor-line">{_e(details)}</p>'
-        if doctor.registration_no:
-            doctor_html += f'<p class="doctor-line">Reg. No. {_e(doctor.registration_no)}</p>'
+    if letterhead.preprinted:
+        return ""
+    lines = [line for line in letterhead.lines if line]
+    tagline = f'<p class="tagline">{_e(letterhead.tagline)}</p>' if letterhead.tagline else ""
+
+    if letterhead.design == "band":
+        # The colour band holds the logo, name and tagline; the details and the doctor sit under it.
+        logo = f'<td width="12%" class="band-logo" align="center">{_logo_img(letterhead.logo_png, 60, 38)}</td>' if letterhead.logo_png else ""
+        band_tagline = f'<p class="band-tagline">{_e(letterhead.tagline)}</p>' if letterhead.tagline else ""
+        clinic_lines = "".join(f'<p class="clinic-line">{_e(line)}</p>' for line in lines)
+        return f"""
+    <div id="header_content">
+      <table class="band" width="100%"><tr>
+        {logo}
+        <td><p class="band-name">{_e(letterhead.clinic_name)}</p>{band_tagline}</td>
+      </tr></table>
+      <table width="100%" class="under-band"><tr>
+        <td valign="top">{clinic_lines}</td>
+        <td width="45%" valign="top">{_doctor_strip(doctor, two_lines=True)}</td>
+      </tr></table>
+    </div>"""
+
+    if letterhead.design == "centred":
+        # With a logo, the logo and the name sit side by side as one group in the middle; without
+        # one, the name itself is centred.
+        if letterhead.logo_png:
+            logo = f'<td width="24%" class="logo-cell" valign="middle" align="right">{_logo_img(letterhead.logo_png, 70, 38)}</td>'
+            name_block = f'<p class="clinic-name">{_e(letterhead.clinic_name)}</p>{tagline}'
+            group = 64
+        else:
+            logo = ""
+            name_block = f'<p class="clinic-name centre">{_e(letterhead.clinic_name)}</p>' + (
+                f'<p class="tagline centre">{_e(letterhead.tagline)}</p>' if letterhead.tagline else ""
+            )
+            group = 100
+        centred_lines = "".join(f'<p class="clinic-line centre">{_e(line)}</p>' for line in lines)
+        return f"""
+    <div id="header_content">
+      <table width="100%"><tr><td align="center">
+        <table class="logo-name" width="{group}%" align="center"><tr>{logo}<td valign="middle">{name_block}</td></tr></table>
+      </td></tr></table>
+      {centred_lines}
+      {_doctor_strip(doctor)}
+      <hr class="rule"/>
+    </div>"""
+
+    clinic_lines = "".join(f'<p class="clinic-line">{_e(line)}</p>' for line in lines)
+    logo = f'<td width="19%" class="logo-cell">{_logo_img(letterhead.logo_png, 88, 58)}</td>' if letterhead.logo_png else ""
     return f"""
     <div id="header_content">
       <table><tr>
-        <td width="58%" valign="top"><p class="clinic-name">{_e(letterhead.clinic_name)}</p>{clinic_lines}</td>
-        <td width="42%" valign="top" class="doctor-cell">{doctor_html}</td>
+        {logo}
+        <td valign="top"><p class="clinic-name">{_e(letterhead.clinic_name)}</p>{tagline}{clinic_lines}</td>
+        <td width="38%" valign="top" class="doctor-cell">{_doctor_block(doctor)}</td>
       </tr></table>
       <hr class="rule"/>
     </div>"""
 
 
 def _footer(letterhead: Letterhead, note: str | None) -> str:
+    own = f'<p class="footer-own">{_e(letterhead.footer_text)}</p>' if letterhead.footer_text else ""
     note_html = f'<p class="footer-note">{_e(note)}</p>' if note else ""
     powered = '<p class="powered">Powered by Denti</p>' if letterhead.show_powered_by else ""
-    return f'<div id="footer_content">{note_html}{powered}</div>'
+    return f'<div id="footer_content">{note_html}{own}{powered}</div>'
 
 
 def _render(html: str) -> bytes:
@@ -209,7 +332,7 @@ def prescription_html(letterhead: Letterhead, doc: PrescriptionDoc) -> str:
 
     version = f'<p class="footer-note">{_e(doc.version_note)}</p>' if doc.version_note else ""
     note = "Valid with the doctor's signature. Please follow the dosage instructions carefully."
-    html = f"""<html><head><meta charset="utf-8"/><style>{CSS}</style></head><body>
+    html = f"""<html><head><meta charset="utf-8"/><style>{_css(letterhead)}</style></head><body>
       {_header(letterhead, doc.doctor)}
       {_footer(letterhead, note)}
       <div class="date-stamp">Date: {_e(doc.date_text)}</div>
@@ -264,7 +387,7 @@ def invoice_html(letterhead: Letterhead, doc: InvoiceDoc) -> str:
     </table>"""
     cancelled = f'<p class="cancelled">CANCELLED: {_e(doc.cancelled_note)}</p>' if doc.cancelled_note else ""
     balance = f'<p class="small-note">{_e(doc.balance_note)}</p>' if doc.balance_note else ""
-    return f"""<html><head><meta charset="utf-8"/><style>{CSS}</style></head><body>
+    return f"""<html><head><meta charset="utf-8"/><style>{_css(letterhead)}</style></head><body>
       {_header(letterhead, None)}
       {_footer(letterhead, "Thank you for choosing us for your care.")}
       <p class="doc-title">Invoice</p>
@@ -353,7 +476,7 @@ def estimate_html(letterhead: Letterhead, doc: EstimateDoc) -> str:
         <p class="signature-line">______________________________</p></td>
     </tr></table>"""
     note = "This is an estimate, not a bill. Prices may change if the treatment plan changes."
-    return f"""<html><head><meta charset="utf-8"/><style>{CSS}</style></head><body>
+    return f"""<html><head><meta charset="utf-8"/><style>{_css(letterhead)}</style></head><body>
       {_header(letterhead, None)}
       {_footer(letterhead, note)}
       <p class="doc-title">Treatment estimate</p>
@@ -363,3 +486,18 @@ def estimate_html(letterhead: Letterhead, doc: EstimateDoc) -> str:
 
 def estimate_pdf(letterhead: Letterhead, doc: EstimateDoc) -> bytes:
     return _render(estimate_html(letterhead, doc))
+
+
+def letterhead_preview_html(letterhead: Letterhead, doctor: Doctor | None) -> str:
+    return f"""<html><head><meta charset="utf-8"/><style>{_css(letterhead)}</style></head><body>
+      {_header(letterhead, doctor)}
+      {_footer(letterhead, "This line shows each document's own note, such as how long an estimate is valid.")}
+      <p class="doc-title">Sample page</p>
+      <p class="section-text">This is how your prescriptions, invoices and estimates look at the top and the foot of
+      every page. The doctor's name and details show on prescriptions only.</p>
+      <p class="small-note">Change the logo, details, design or colour in Settings, Clinic details and letterhead.</p>
+    </body></html>"""
+
+
+def letterhead_preview_pdf(letterhead: Letterhead, doctor: Doctor | None) -> bytes:
+    return _render(letterhead_preview_html(letterhead, doctor))

@@ -5,9 +5,11 @@ from fastapi import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.clinic_settings import get_settings
 from app.files_service import read_file
 from app.models import (
     Clinic,
+    ClinicSettings,
     Consultation,
     ConsultationRecommendation,
     File,
@@ -41,9 +43,45 @@ def date_text(day) -> str:
     return f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
 
 
-def letterhead_for(clinic: Clinic) -> Letterhead:
-    # The clinic's address, phone, logo and design join this with the branding settings.
-    return Letterhead(clinic_name=clinic.name)
+BRANDED_PLANS = ("standard", "pro")
+
+
+def logo_png(db: Session, settings: ClinicSettings) -> bytes | None:
+    if settings.logo_file_id is None:
+        return None
+    stored = db.get(File, settings.logo_file_id)
+    if stored is None or stored.deleted_at is not None:
+        return None
+    return read_file(stored)
+
+
+def letterhead_for(db: Session, clinic: Clinic) -> Letterhead:
+    """The letterhead from the clinic's details: its logo, tagline, address, contact line and
+    GSTIN. Its colour and design count on Standard and Pro only, and hiding "Powered by Denti" on
+    Pro only, so a clinic that moves to a smaller plan simply prints the plain letterhead."""
+    settings = get_settings(db, clinic)
+    # The address prints on one line (the lines it was typed in joined with commas), so the
+    # letterhead stays short enough for every design.
+    address = ", ".join(line.strip() for line in (settings.address or "").splitlines() if line.strip())
+    lines = [address] if address else []
+    contact = " · ".join(x for x in [settings.phone, settings.email, settings.website] if x)
+    if contact:
+        lines.append(contact)
+    if settings.gstin:
+        lines.append(f"GSTIN {settings.gstin}")
+    branded = clinic.plan in BRANDED_PLANS
+    return Letterhead(
+        clinic_name=clinic.name,
+        tagline=settings.tagline,
+        lines=lines,
+        logo_png=logo_png(db, settings),
+        accent=settings.brand_colour if branded else None,
+        design=settings.letterhead_design if branded else "classic",
+        footer_text=settings.footer_text,
+        show_powered_by=not (clinic.plan == "pro" and settings.hide_powered_by),
+        preprinted=settings.preprinted_letterhead,
+        top_margin_mm=settings.preprinted_top_margin_mm,
+    )
 
 
 def signature_png(db: Session, staff: Staff) -> bytes | None:

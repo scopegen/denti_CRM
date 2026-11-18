@@ -60,6 +60,19 @@ def test_prices_and_features_come_from_one_list(client):
     assert (pro["patients"], pro["doctors"], pro["receptionists"], pro["storage_gb"]) == (None, None, None, 40)
     tooth_chart = next(f for f in body["features"] if f["label"] == "Tooth chart")
     assert tooth_chart["plans"] == ["standard", "pro"]
+    # Only what Denti already does is offered; a feature joins this list once it is built.
+    assert [f["label"] for f in body["features"]] == [
+        "Patients, consultations, prescriptions and bills",
+        "X-rays and photos",
+        "Your logo and clinic details on every document",
+        "Import your patient list from Excel",
+        "Dues list",
+        "Activity log for the owner",
+        "Tooth chart",
+        "WhatsApp reminders",
+        "Letterhead designs and brand colour",
+        'Remove "Powered by Denti" from documents',
+    ]
     assert (body["storage_pack_gb"], body["storage_pack_monthly_paise"]) == (50, 49900)
     # No subscription row yet: the plan still shows, without billing details.
     assert body["billing"] is None

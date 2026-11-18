@@ -1,9 +1,12 @@
+import re
 import uuid
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field, field_validator, model_validator
+
+from app.names import person_name
 
 # Request and response shapes of the API. Separate from the database models on purpose.
 
@@ -60,6 +63,92 @@ class SignatureIn(BaseModel):
     """A signature as a data URL: a photo of it on paper, or one drawn on screen."""
 
     image_data: str = Field(min_length=30, max_length=7_200_000)
+
+
+# The clinic's details and letterhead
+
+# 2 digits for the state, the 10 character PAN, the entity number, Z, and a check character.
+GSTIN_PATTERN = r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
+ADDRESS_LINES = 3
+
+
+class LogoIn(BaseModel):
+    """The clinic's logo as a data URL from a file upload."""
+
+    image_data: str = Field(min_length=30, max_length=7_200_000)
+
+
+class ClinicDetailsIn(BaseModel):
+    tagline: str | None = Field(default=None, max_length=120)
+    address: str | None = Field(default=None, max_length=300)
+    phone: str | None = Field(default=None, max_length=40)
+    email: Email | None = None
+    website: str | None = Field(default=None, max_length=200)
+    gstin: str | None = Field(default=None, max_length=20)
+    # Standard and Pro.
+    brand_colour: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    letterhead_design: Literal["classic", "centred", "band"] = "classic"
+    footer_text: str | None = Field(default=None, max_length=200)
+    # Pro.
+    hide_powered_by: bool = False
+    preprinted_letterhead: bool = False
+    preprinted_top_margin_mm: int = Field(default=40, ge=10, le=120)
+
+    @field_validator("tagline", "address", "phone", "email", "website", "gstin", "brand_colour", "footer_text", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value):
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("address")
+    @classmethod
+    def _address(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        lines = [line.strip() for line in value.splitlines() if line.strip()]
+        if len(lines) > ADDRESS_LINES:
+            raise ValueError(f"Keep the address to {ADDRESS_LINES} lines, so it fits the letterhead.")
+        return "\n".join(lines)
+
+    @field_validator("gstin")
+    @classmethod
+    def _gstin(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = "".join(value.split()).upper()
+        if not re.match(GSTIN_PATTERN, value):
+            raise ValueError("A GSTIN has 15 characters, like 07ABCDE1234F1Z5. Check it against your GST certificate.")
+        return value
+
+    @field_validator("brand_colour")
+    @classmethod
+    def _colour(cls, value: str | None) -> str | None:
+        return value.lower() if value else None
+
+
+class ClinicDetailsOut(BaseModel):
+    name: str
+    plan: str
+    tagline: str | None
+    address: str | None
+    phone: str | None
+    email: str | None
+    website: str | None
+    gstin: str | None
+    brand_colour: str | None
+    letterhead_design: str
+    footer_text: str | None
+    hide_powered_by: bool
+    preprinted_letterhead: bool
+    preprinted_top_margin_mm: int
+    has_logo: bool
+    # Changes whenever the logo does, so the app knows to fetch the new one.
+    logo_version: str | None
+    # What the clinic's plan allows: brand colour and designs (Standard, Pro), and documents
+    # without "Powered by Denti" (Pro).
+    can_brand: bool
+    can_hide_powered_by: bool
 
 
 # Signing in
@@ -148,6 +237,9 @@ class StaffCreate(BaseModel):
     qualification: str | None = Field(default=None, max_length=120)
     specialty: str | None = Field(default=None, max_length=120)
     registration_no: str | None = Field(default=None, max_length=60)
+
+    # A person's name always starts each word with a capital, however it was typed.
+    _name = field_validator("name")(person_name)
 
     _check_password = field_validator("password")(_password_fits_bcrypt)
 
@@ -492,6 +584,8 @@ class StaffUpdate(BaseModel):
     qualification: str | None = Field(default=None, max_length=120)
     specialty: str | None = Field(default=None, max_length=120)
     registration_no: str | None = Field(default=None, max_length=60)
+
+    _name = field_validator("name")(person_name)
 
     @field_validator("name", "phone", "qualification", "specialty", "registration_no", mode="before")
     @classmethod
@@ -1433,17 +1527,14 @@ class SignupPlansOut(BaseModel):
     gst_percent: int
 
 
-class AddressCheckOut(BaseModel):
+class SignupAddressOut(BaseModel):
+    # The web address a clinic of the typed name would get, made from its name.
     slug: str
-    available: bool
-    # Why not, in words, when it is not available.
-    reason: str | None
 
 
 class SignupIn(BaseModel):
     plan: Literal["basic", "standard", "pro"]
     clinic_name: str = Field(min_length=2, max_length=120)
-    slug: str = Field(min_length=2, max_length=40)
     patient_id_prefix: str | None = Field(default=None, max_length=12)
     owner_name: str = Field(min_length=2, max_length=120)
     email: Email
@@ -1453,15 +1544,12 @@ class SignupIn(BaseModel):
 
     _check_password = field_validator("password")(_password_fits_bcrypt)
 
-    @field_validator("clinic_name", "owner_name")
+    @field_validator("clinic_name")
     @classmethod
     def _trimmed(cls, value: str) -> str:
         return value.strip()
 
-    @field_validator("slug")
-    @classmethod
-    def _slug(cls, value: str) -> str:
-        return value.strip().lower()
+    _owner_name = field_validator("owner_name")(person_name)
 
     @field_validator("patient_id_prefix")
     @classmethod

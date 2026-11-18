@@ -12,6 +12,7 @@ from app.routers import (
     audit_log,
     auth,
     billing,
+    clinic,
     consultations,
     estimates,
     imports,
@@ -61,6 +62,7 @@ app.include_router(imports.router)
 app.include_router(whatsapp.router)
 app.include_router(shared_documents.router)
 app.include_router(signup.router)
+app.include_router(clinic.router)
 
 
 @app.exception_handler(EmailNotSent)
